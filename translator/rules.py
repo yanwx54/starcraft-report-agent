@@ -50,7 +50,7 @@ PLAYER_ID_MAP: dict[str, str] = {
 }
 
 
-@dataclass(slots=True)
+@dataclass
 class TranslateRules:
     players: dict[str, str] = field(default_factory=dict)
     player_ids: dict[str, str] = field(default_factory=lambda: PLAYER_ID_MAP.copy())

@@ -17,7 +17,7 @@ from translator.rules import TranslateRules, compact_korean_name, load_translate
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) StarCraftReportAgent/1.0"
 
 
-@dataclass(slots=True)
+@dataclass
 class MatchSummary:
     match_id: str
     title: str

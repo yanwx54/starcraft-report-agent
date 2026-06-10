@@ -11,7 +11,7 @@ from translator.deepseek import DeepSeekTranslator
 WECHAT_TITLE_MAX_CHARS = 25
 
 
-@dataclass(slots=True)
+@dataclass
 class GeneratedArticle:
     title: str
     intro: str

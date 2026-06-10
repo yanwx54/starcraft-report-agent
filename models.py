@@ -8,14 +8,14 @@ from typing import Any, Literal
 Race = Literal["Z", "T", "P", "U"]
 
 
-@dataclass(slots=True)
+@dataclass
 class PlayerRef:
     raw_name: str
     display_name: str
     race: Race = "U"
 
 
-@dataclass(slots=True)
+@dataclass
 class MatchGame:
     id: int
     map_name: str
@@ -25,7 +25,7 @@ class MatchGame:
     winner_display: str
 
 
-@dataclass(slots=True)
+@dataclass
 class Round:
     name: str
     matches: list[MatchGame] = field(default_factory=list)
@@ -34,7 +34,7 @@ class Round:
     winner_team: str | None = None
 
 
-@dataclass(slots=True)
+@dataclass
 class Team:
     raw_name: str
     display_name: str
@@ -43,7 +43,7 @@ class Team:
     is_winner: bool = False
 
 
-@dataclass(slots=True)
+@dataclass
 class PlayerStat:
     raw_name: str
     display_name: str
@@ -60,7 +60,7 @@ class PlayerStat:
         return self.wins / total if total else 0.0
 
 
-@dataclass(slots=True)
+@dataclass
 class BattleReport:
     match_id: str
     source_url: str

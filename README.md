@@ -23,6 +23,8 @@
 
 ## 安装
 
+运行环境建议使用 Python 3.8+。如果服务器系统自带 Python 3.6，请单独安装 Python 3.8 并为本项目创建虚拟环境，不要修改系统默认 Python。
+
 ```bash
 pip install -r requirements.txt
 copy .env.example .env.local

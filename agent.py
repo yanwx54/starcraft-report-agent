@@ -14,7 +14,7 @@ from report.html import render_article_html
 from wechat.client import WechatClient, local_image_urls
 
 
-@dataclass(slots=True)
+@dataclass
 class RunResult:
     report: BattleReport
     article: GeneratedArticle
