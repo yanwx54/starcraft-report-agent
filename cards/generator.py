@@ -374,6 +374,13 @@ def team_name_for(report: BattleReport, player_raw_name: str) -> str:
 def font_for(text: str, size: int) -> ImageFont.FreeTypeFont:
     has_hangul = any("\uac00" <= char <= "\ud7a3" for char in text)
     candidates = [
+        Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"),
+        Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+        Path("/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc"),
+        Path("/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc"),
+        Path("/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"),
+        Path("/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"),
+        Path("/usr/share/fonts/truetype/arphic/uming.ttc"),
         Path("C:/Windows/Fonts/malgunbd.ttf") if has_hangul else Path("C:/Windows/Fonts/msyhbd.ttc"),
         Path("C:/Windows/Fonts/malgun.ttf") if has_hangul else Path("C:/Windows/Fonts/msyhbd.ttc"),
         Path("C:/Windows/Fonts/simhei.ttf"),
