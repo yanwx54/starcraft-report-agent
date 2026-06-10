@@ -1,0 +1,6 @@
+{
+  "name": "星际团战报告自动生成",
+  "description": "Automated esports battle report generator for StarCraft team leagues (4v4/5v5). Parses match text data into high-quality visual scorecards.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

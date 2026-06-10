@@ -1,0 +1,8 @@
+beautifulsoup4>=4.12
+Jinja2>=3.1
+Pillow>=10.0
+requests>=2.31
+SQLAlchemy>=2.0
+PyMySQL>=1.1
+fastapi>=0.115
+uvicorn[standard]>=0.30

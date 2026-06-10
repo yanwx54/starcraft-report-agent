@@ -1,0 +1,22 @@
+export const PLAYER_ID_MAP: Record<string, string> = {
+  "教主": "Flash", "解冻": "Jaedong", "老毕": "Bisu", "石头": "Stork",
+  "永康": "Soulkey", "雨神": "Rain", "小雪": "Snow", "小胖": "Hero",
+  "小零": "Queen", "光哥": "Light", "禽兽": "Best", "迷你": "Mini",
+  "永镇": "Rush", "夏普": "Sharp", "抱歉": "Royal", "桥右京": "JYJ",
+  "瞬本": "Action", "兵营": "Barracks", "教练": "Speed", "索玛": "Soma",
+  "火星": "Effort", "侠义": "Ssak", "神麦": "Mind", "猪头": "Mong",
+  "苹果": "Ample", "太阳": "Sun", "如花": "Leta", "大头": "Sea",
+  "金鱼": "Hiya", "刷分": "Shine", "假卡": "Shine Kal", "小头": "Sacsri",
+  "杀本": "Killer", "屌丝": "Larva", "家狗": "Jatgirl", "宝儿": "JUM",
+  "灯哥": "Free", "木头": "Motive", "如影": "Ruin", "胡子": "Tulbo",
+  "扫描": "Scan", "钢琴": "Piano", "KOP": "Kop", "火并": "Firebathero",
+  "Bishop": "Bishop", "Ridesky": "Ridesky", "SoSo": "SoSo", "Skey": "Skey",
+  "寂寞": "Gaemo", "脑虫": "Clam", "ArtUser": "ArtUser", "胡克": "Hyuk",
+  "815": "815", "搜本": "Soo", "Saber": "Saber", "HM": "HM", "BTS": "BTS",
+  "小玄": "Hyun", "拼命": "Zelot", "Yoon": "Yoon", "哑巴": "Yabsab",
+  "Absolute": "Absolute", "Ssal": "Ssal", "alen": "Alen", "ivOrY": "Ivory",
+  "虎狼": "Horang", "泰森": "Tyson", "老师": "Movie", "nOOB": "nOOB",
+  "爆炸头": "Paralyze", "MC": "MC", "白虎": "BackHo", "古拉米斯": "ProMise",
+  "Mighty": "Mighty", "Ss1nz": "Ss1nz", "富贵": "Rich", "NoBle": "NoBle",
+  "釜山": "Pusan", "古妹": "Gume", "米大师": "Midas"
+};

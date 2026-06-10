@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+output/
+__pycache__/
+.pytest_cache/
+.venv/
+venv/
+env/
+.git/
+.gitignore
+*.db
+*.sqlite
+*.sqlite3
