@@ -3,7 +3,9 @@ from __future__ import annotations
 from datetime import date
 
 from crawler.eloboard import MatchSummary, choose_daily_match, parse_match_detail
+from cards.generator import generate_cards
 from report.generator import WECHAT_TITLE_MAX_CHARS, choose_mvp, generate_article_locally, sanitize_article, GeneratedArticle
+from report.html import render_article_html
 from translator.rules import load_translate_rules
 from wechat.client import truncate_chars
 
@@ -139,3 +141,35 @@ def test_article_title_and_draft_title_stay_within_push_limit() -> None:
     long_title = "这是一条非常非常非常非常长的公众号推送标题用于测试截断规则"
     assert len(long_title) > WECHAT_TITLE_MAX_CHARS
     assert len(truncate_chars(long_title, WECHAT_TITLE_MAX_CHARS)) == WECHAT_TITLE_MAX_CHARS
+
+
+def test_no_ace_match_omits_ace_card_and_article_block(tmp_path) -> None:
+    html = """
+    <html><head><title>2026.06.10 (수) 스타 5:5 메이저 프로리그</title></head>
+    <body><article class="view-content">
+    Z 김정우 김민철 P 김윤중
+    [윤중팀] 김윤중
+    [정우팀] 김정우 김민철
+    [1SET - 7/4 프로리그]
+    1. [제인] 김윤중P (패) vs (승) 김정우Z
+    윤중팀 (패) 0 : 1 (승) 정우팀
+    [2SET - 9/5 위너스리그]
+    1. [매치] 김윤중P (패) vs (승) 김민철Z
+    윤중팀 (패) 0 : 1 (승) 정우팀
+    [3SET - Super Ace Match]
+    슈에 방식 룰렛: 자연빵
+    최종 결과 정우팀 2 : 0 승
+    </article></body></html>
+    """
+    report = parse_match_detail(html, "https://example.com?wr_id=2451", "2451")
+    assert report.ace_round is not None
+    assert report.ace_round.matches == []
+
+    article = generate_article_locally(report)
+    card_paths = generate_cards(report, article.mvp, tmp_path / "cards")
+    assert "ace" not in card_paths
+
+    image_urls = {key: path.as_uri() for key, path in card_paths.items()}
+    rendered = render_article_html(report, article, image_urls, tmp_path / "article.html")
+    assert "大将战 - Super Ace Match" not in rendered
+    assert "未进行" not in rendered

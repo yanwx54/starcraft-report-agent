@@ -23,6 +23,8 @@ def render_article_html(
     round_blocks = []
     for round_index, (round_item, review) in enumerate(zip(report.all_rounds, article.round_reviews), start=1):
         key = "ace" if "大将战" in round_item.name or "Super Ace" in round_item.name else f"round_{round_index}"
+        if key == "ace" and not round_item.matches:
+            continue
         images = [image_urls[key]] if key in image_urls else []
         round_blocks.append({"name": review[0], "text": review[1], "images": images})
     html = template.render(report=report, article=article, images=image_urls, round_blocks=round_blocks)

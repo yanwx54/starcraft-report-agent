@@ -32,7 +32,7 @@ def generate_cards(report: BattleReport, mvp: PlayerStat, out_dir: Path | None =
 
     for round_index, round_item in enumerate(report.all_rounds, start=1):
         key = "ace" if "大将战" in round_item.name or "Super Ace" in round_item.name else f"round_{round_index}"
-        if not round_item.matches and key != "ace":
+        if not round_item.matches:
             continue
         paths[key] = out_dir / f"{key}.png"
         if key == "ace":
