@@ -34,7 +34,8 @@ class StarCraftReportAgent:
 
     def run(self, match_id_or_url: str | None = None, force: bool = False, publish: bool = False) -> RunResult:
         report = self.crawler.fetch_match(match_id_or_url)
-        if self.store.has_match(report.match_id) and not force:
+        already_done = self.store.has_published_article(report.match_id) if publish else self.store.has_match(report.match_id)
+        if already_done and not force:
             article = generate_article(report)
             html_path = settings.article_dir / f"{report.match_id}.html"
             return RunResult(report, article, html_path, {}, "", skipped=True)

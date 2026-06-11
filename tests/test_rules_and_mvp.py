@@ -4,6 +4,7 @@ from datetime import date
 
 from crawler.eloboard import MatchSummary, choose_daily_match, parse_match_detail
 from cards.generator import generate_cards
+from database.store import HistoryStore
 from report.generator import WECHAT_TITLE_MAX_CHARS, choose_mvp, generate_article_locally, sanitize_article, GeneratedArticle
 from report.html import render_article_html
 from translator.rules import load_translate_rules
@@ -173,3 +174,12 @@ def test_no_ace_match_omits_ace_card_and_article_block(tmp_path) -> None:
     rendered = render_article_html(report, article, image_urls, tmp_path / "article.html")
     assert "大将战 - Super Ace Match" not in rendered
     assert "未进行" not in rendered
+
+
+def test_empty_media_id_does_not_count_as_published(tmp_path) -> None:
+    store = HistoryStore(f"sqlite:///{tmp_path / 'agent.db'}")
+    store.save_article("2451", "本地草稿已生成", "")
+    assert not store.has_published_article("2451")
+
+    store.save_article("2451", "公众号草稿已创建", "draft-media-id")
+    assert store.has_published_article("2451")

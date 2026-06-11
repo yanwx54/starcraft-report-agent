@@ -51,6 +51,12 @@ class HistoryStore:
         with self.engine.connect() as conn:
             return conn.execute(stmt).first() is not None
 
+    def has_published_article(self, match_id: str) -> bool:
+        stmt = select(article_history.c.media_id).where(article_history.c.match_id == match_id).limit(1)
+        with self.engine.connect() as conn:
+            media_id = conn.execute(stmt).scalar_one_or_none()
+            return bool(media_id)
+
     def save_match(self, report: BattleReport) -> None:
         raw_payload: Any = report.to_dict()
         if self.engine.dialect.name == "sqlite":
