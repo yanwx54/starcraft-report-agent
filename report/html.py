@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -27,9 +28,16 @@ def render_article_html(
             continue
         images = [image_urls[key]] if key in image_urls else []
         round_blocks.append({"name": review[0], "text": review[1], "images": images})
-    html = template.render(report=report, article=article, images=image_urls, round_blocks=round_blocks)
+    html = compact_wechat_html(template.render(report=report, article=article, images=image_urls, round_blocks=round_blocks))
     if out_path is None:
         out_path = settings.article_dir / f"{report.match_id}.html"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html, encoding="utf-8")
     return html
+
+
+def compact_wechat_html(html: str) -> str:
+    """Keep WeChat drafts from amplifying template whitespace into visible gaps."""
+    html = re.sub(r">\s+<", "><", html)
+    html = re.sub(r"\s*\n\s*", "", html)
+    return html.strip()

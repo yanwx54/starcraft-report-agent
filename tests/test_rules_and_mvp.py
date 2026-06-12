@@ -6,7 +6,7 @@ from crawler.eloboard import MatchSummary, choose_daily_match, parse_match_detai
 from cards.generator import generate_cards
 from database.store import HistoryStore
 from report.generator import WECHAT_TITLE_MAX_CHARS, choose_mvp, generate_article_locally, sanitize_article, GeneratedArticle
-from report.html import render_article_html
+from report.html import compact_wechat_html, render_article_html
 from translator.rules import load_translate_rules
 from wechat.client import truncate_chars
 
@@ -174,6 +174,20 @@ def test_no_ace_match_omits_ace_card_and_article_block(tmp_path) -> None:
     rendered = render_article_html(report, article, image_urls, tmp_path / "article.html")
     assert "大将战 - Super Ace Match" not in rendered
     assert "未进行" not in rendered
+    assert "\n" not in rendered
+    assert "padding:24px 12px 52px" not in rendered
+    assert "display:none" not in rendered
+    assert "font-size:16px;line-height:1.75" in rendered
+
+
+def test_compact_wechat_html_removes_template_whitespace() -> None:
+    html = """
+    <section>
+      <p>正文</p>
+      <p>第二段</p>
+    </section>
+    """
+    assert compact_wechat_html(html) == "<section><p>正文</p><p>第二段</p></section>"
 
 
 def test_empty_media_id_does_not_count_as_published(tmp_path) -> None:

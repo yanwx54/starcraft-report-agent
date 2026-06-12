@@ -1,49 +1,28 @@
-<section style="max-width: 677px; margin: 0 auto; color: #26313f; font-size: 16px; line-height: 1.75; letter-spacing: 0;">
-  {% if images.hero %}
-  <section style="margin: 0 0 6px;">
-    <img src="{{ images.hero }}" style="width: 100%; display: block; border-radius: 5px;" />
-  </section>
-  {% endif %}
-
-  <section style="text-align: center; margin: 7px 0 8px;">
-    <p style="margin: 0 0 4px; color: #3b82f6; font-size: 10px; font-weight: 700; letter-spacing: 1px;">STARCRAFT TEAM LEAGUE</p>
-    <h1 style="margin: 0; color: #111827; font-size: 22px; line-height: 1.35; font-weight: 800;">{{ article.title }}</h1>
-    <p style="margin: 4px 0 0; color: #8a93a3; font-size: 12px; line-height: 1.35;">
-      {% if report.match_date %}{{ report.match_date.strftime('%Y.%m.%d') }} · {% endif %}{{ report.league_name }}
-    </p>
-  </section>
-
-  <section style="margin: 8px 0 10px; padding: 9px 11px; background: #f7f9fc; border-left: 3px solid #2563eb; border-radius: 5px;">
-    <p style="margin: 0; color: #344054; font-size: 16px; line-height: 1.75;">{{ article.intro }}</p>
-  </section>
-
-  <section style="margin: 12px 0 6px;">
-    <p style="margin: 0; padding: 0 0 5px; border-bottom: 1px solid #e5e7eb; color: #111827; font-size: 18px; font-weight: 800;">对局回顾</p>
-  </section>
-
-  {% for item in round_blocks %}
-    <section style="margin: 8px 0 12px;">
-      <p style="margin: 0 0 5px;">
-        <span style="display: inline-block; min-width: 24px; margin-right: 6px; padding: 1px 5px; background: #2563eb; color: #ffffff; border-radius: 4px; text-align: center; font-size: 12px; font-weight: 800;">0{{ loop.index }}</span>
-        <strong style="color: #111827; font-size: 17px;">{{ item.name }}</strong>
-      </p>
-      <p style="margin: 0 0 6px; color: #344054; font-size: 16px; line-height: 1.75;">{{ item.text }}</p>
-      {% for image in item.images %}
-        <section style="margin: 4px 0 0;">
-          <img src="{{ image }}" style="width: 100%; display: block; border-radius: 5px;" />
-        </section>
-      {% endfor %}
-    </section>
-  {% endfor %}
-
-  <section style="margin: 10px 0 12px; padding: 9px 11px; background: #fff7ed; border-left: 3px solid #f59e0b; border-radius: 5px;">
-    <p style="margin: 0 0 4px; color: #92400e; font-size: 13px; font-weight: 800;">本场焦点</p>
-    <p style="margin: 0 0 4px; color: #111827; font-size: 17px; font-weight: 800;">MVP：{{ article.mvp.display_name }}</p>
-    <p style="margin: 0; color: #4b5563; font-size: 16px; line-height: 1.75;">{{ article.mvp_text }}</p>
-  </section>
-
-  <section style="margin: 12px 0 4px;">
-    <p style="margin: 0 0 6px; padding: 0 0 5px; border-bottom: 1px solid #e5e7eb; color: #111827; font-size: 18px; font-weight: 800;">总结</p>
-    <p style="margin: 0; color: #344054; font-size: 16px; line-height: 1.75;">{{ article.summary }}</p>
-  </section>
+<section style="max-width:677px;margin:0 auto;padding:0;color:#26313f;font-size:16px;line-height:1.75;letter-spacing:0;">
+{% if images.hero %}<p style="margin:0 0 4px;"><img src="{{ images.hero }}" style="width:100%;display:block;border-radius:4px;" /></p>{% endif %}
+<section style="text-align:center;margin:4px 0 6px;padding:0;">
+<p style="margin:0 0 2px;color:#3b82f6;font-size:10px;font-weight:700;letter-spacing:1px;">STARCRAFT TEAM LEAGUE</p>
+<h1 style="margin:0;color:#111827;font-size:22px;line-height:1.35;font-weight:800;">{{ article.title }}</h1>
+<p style="margin:2px 0 0;color:#8a93a3;font-size:12px;line-height:1.35;">{% if report.match_date %}{{ report.match_date.strftime('%Y.%m.%d') }} · {% endif %}{{ report.league_name }}</p>
+</section>
+<section style="margin:6px 0 8px;padding:9px 11px;background:#f7f9fc;border-left:3px solid #2563eb;border-radius:5px;">
+<p style="margin:0;color:#344054;font-size:16px;line-height:1.75;">{{ article.intro }}</p>
+</section>
+<section style="margin:10px 0 4px;">
+<p style="margin:0;padding:0 0 4px;border-bottom:1px solid #e5e7eb;color:#111827;font-size:17px;font-weight:800;">对局回顾</p>
+</section>
+{% for item in round_blocks %}<section style="margin:6px 0 10px;">
+<p style="margin:0 0 4px;"><span style="display:inline-block;min-width:24px;margin-right:6px;padding:1px 5px;background:#2563eb;color:#ffffff;border-radius:4px;text-align:center;font-size:12px;font-weight:800;">0{{ loop.index }}</span><strong style="color:#111827;font-size:17px;">{{ item.name }}</strong></p>
+<p style="margin:0 0 4px;color:#344054;font-size:16px;line-height:1.75;">{{ item.text }}</p>
+{% for image in item.images %}<p style="margin:2px 0 0;"><img src="{{ image }}" style="width:100%;display:block;border-radius:4px;" /></p>{% endfor %}
+</section>{% endfor %}
+<section style="margin:8px 0 10px;padding:9px 11px;background:#fff7ed;border-left:3px solid #f59e0b;border-radius:5px;">
+<p style="margin:0 0 3px;color:#92400e;font-size:13px;font-weight:800;">本场焦点</p>
+<p style="margin:0 0 3px;color:#111827;font-size:17px;font-weight:800;">MVP：{{ article.mvp.display_name }}</p>
+<p style="margin:0;color:#4b5563;font-size:16px;line-height:1.75;">{{ article.mvp_text }}</p>
+</section>
+<section style="margin:10px 0 0;">
+<p style="margin:0 0 4px;padding:0 0 4px;border-bottom:1px solid #e5e7eb;color:#111827;font-size:17px;font-weight:800;">总结</p>
+<p style="margin:0;color:#344054;font-size:16px;line-height:1.75;">{{ article.summary }}</p>
+</section>
 </section>
