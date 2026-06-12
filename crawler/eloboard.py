@@ -69,11 +69,28 @@ class ELOBoardClient:
             raise RuntimeError("未在 ELOBoard 列表页找到团战记录")
         return choose_daily_match(matches)
 
+    def latest_valid_report(self) -> BattleReport:
+        matches = self.list_matches(limit=30)
+        if not matches:
+            raise RuntimeError("未在 ELOBoard 列表页找到团战记录")
+
+        failures: list[str] = []
+        for summary in order_match_candidates(matches):
+            try:
+                report = self.fetch_match(summary.url)
+            except Exception as exc:
+                failures.append(f"{summary.match_id} 读取失败：{exc}")
+                continue
+            if is_valid_report(report):
+                return report
+            failures.append(f"{summary.match_id} 未解析到有效对局：{summary.title}")
+
+        details = "；".join(failures[:5])
+        raise RuntimeError(f"最新战报候选均未解析到有效对局，请检查 ELOBoard 页面结构或访问状态。{details}")
+
     def fetch_match(self, match_id_or_url: str | None = None) -> BattleReport:
         if not match_id_or_url:
-            summary = self.latest_match()
-            url = summary.url
-            match_id = summary.match_id
+            return self.latest_valid_report()
         elif match_id_or_url.startswith("http"):
             url = match_id_or_url
             match_id = extract_wr_id(url) or match_id_or_url.rsplit("=", 1)[-1]
@@ -128,16 +145,26 @@ def extract_wr_id(url: str) -> str | None:
 
 
 def choose_daily_match(matches: list[MatchSummary]) -> MatchSummary:
+    ordered = order_match_candidates(matches)
+    if ordered:
+        return ordered[0]
+    return matches[0]
+
+
+def order_match_candidates(matches: list[MatchSummary]) -> list[MatchSummary]:
     dated_matches = [match for match in matches if match.match_date]
     if not dated_matches:
-        return matches[0]
+        return matches
 
-    latest_date = max(match.match_date for match in dated_matches)
-    same_day = [match for match in dated_matches if match.match_date == latest_date]
-    if len(same_day) == 1:
-        return same_day[0]
+    undated_matches = [match for match in matches if not match.match_date]
+    return sorted(
+        dated_matches,
+        key=lambda match: (-match.match_date.toordinal(), league_priority(match)),
+    ) + undated_matches
 
-    return sorted(same_day, key=league_priority)[0]
+
+def is_valid_report(report: BattleReport) -> bool:
+    return bool(report.player_stats and any(round_item.matches for round_item in report.all_rounds))
 
 
 def league_priority(match: MatchSummary) -> tuple[int, int]:

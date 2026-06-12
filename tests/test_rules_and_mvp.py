@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from crawler.eloboard import MatchSummary, choose_daily_match, parse_match_detail
+from crawler.eloboard import ELOBoardClient, MatchSummary, choose_daily_match, parse_match_detail
 from cards.generator import generate_cards
 from database.store import HistoryStore
 from report.generator import WECHAT_TITLE_MAX_CHARS, choose_mvp, generate_article_locally, sanitize_article, GeneratedArticle
@@ -54,6 +54,34 @@ def test_choose_daily_match_uses_only_match_when_no_same_day_competition() -> No
         MatchSummary("2432", "2026.05.19 (화) 스타 5:5 메이저 프로리그", "old", date(2026, 5, 19)),
     ]
     assert choose_daily_match(matches).match_id == "2433"
+
+
+def test_latest_valid_report_skips_unparseable_latest_candidate(monkeypatch) -> None:
+    matches = [
+        MatchSummary("2454", "2026.06.11 (목) 스타 5:5 메이저 프로리그", "https://example.com/?wr_id=2454", date(2026, 6, 11)),
+        MatchSummary("2453", "2026.06.11 (목) 스타 5:5 K리그", "https://example.com/?wr_id=2453", date(2026, 6, 11)),
+    ]
+    good_html = """
+    <html><head><title>2026.06.11 (목) 스타 5:5 K리그</title></head>
+    <body><article class="view-content">
+    Z 김민철 P 김윤중
+    [민철팀] 김민철
+    [윤중팀] 김윤중
+    [1SET - 7/4 프로리그]
+    1. [매치] 김민철Z (승) vs (패) 김윤중P
+    민철팀 (승) 1 : 0 (패) 윤중팀
+    최종 결과 민철팀 1 : 0 승
+    </article></body></html>
+    """
+
+    client = ELOBoardClient()
+    monkeypatch.setattr(client, "list_matches", lambda limit=30: matches)
+    monkeypatch.setattr(client, "fetch_html", lambda url: "<html><body>empty</body></html>" if "2454" in url else good_html)
+
+    report = client.fetch_match()
+    assert report.match_id == "2453"
+    assert report.player_stats
+    assert report.rounds[0].matches
 
 
 def test_parse_unnumbered_super_ace_and_spaced_team_score() -> None:
