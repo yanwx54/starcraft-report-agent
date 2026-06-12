@@ -62,6 +62,11 @@ DATABASE_URL=mysql+pymysql://user:password@127.0.0.1:3306/starcraft_report?chars
 
 密钥安全说明见 [docs/SECURITY.md](docs/SECURITY.md)。
 
+更多运维和排版文档：
+
+- [微信公众号排版经验](docs/WECHAT_LAYOUT.md)
+- [服务器操作指令](docs/SERVER_COMMANDS.md)
+
 ## 常用命令
 
 抓取最新战报并生成本地文件：
