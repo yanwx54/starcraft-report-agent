@@ -49,10 +49,14 @@ def generate_article_with_deepseek(report: BattleReport) -> GeneratedArticle | N
     local = generate_article_locally(report)
     payload = build_article_payload(report, mvp)
     system = (
-        "你是微信公众号星际争霸团战战报作者。只基于结构化赛果写作；"
-        "因为没有比赛过程录像，不要编造战术细节、操作过程、心理活动或不存在的剧情。"
-        "风格适合公众号发布：有节奏、有梗但不过度口水，重点突出比分走势、连胜和收官局。"
+        "你是一位顶级电竞专栏作家，负责运营爆款《星际争霸：重制版》微信公众号。"
+        "受众是中国星际老粉，喜欢激情、抓马、情怀和辛辣点评。"
+        "本文采用激昂/解说流 Excited 风格：像现场解说拉满嗓门一样写！"
+        "多用感叹号和短句，可使用 🔥、😭、🚑、💎、🏠、🦖、⚡、🔫 等 emoji。"
+        "可以使用“炸裂”“封神”“天神下凡”“无情碾压”“白给”“操作拉满”“没道理的”“按在地上摩擦”等电竞表达。"
+        "但只能基于结构化赛果写作：没有录像数据，不得编造具体战术细节、APM 数值、心理活动或不存在的神仙操作。"
         "地图名必须使用输入中的中文翻译名，选手名和队名使用输入中的显示名。"
+        "必须聚焦团队赛：团队总比分、轮次比分、连胜、转折点、最后收官局或大将战是文章核心。"
         "如果结构化赛果中 has_ace_match 为 true，必须写大将战，严禁写未进行大将战、无需大将战或由前两轮决定。"
         "如果 has_ace_match 为 false，才可以写未进行大将战。"
         "必须返回严格 JSON，不要 Markdown，不要代码块。"
@@ -62,7 +66,10 @@ def generate_article_with_deepseek(report: BattleReport) -> GeneratedArticle | N
         "title、intro、round_reviews、mvp_text、summary。"
         f"title 必须适合公众号推送，最多 {WECHAT_TITLE_MAX_CHARS} 个字符。"
         "round_reviews 是数组，长度必须与 rounds 一致，每项包含 name 和 text。"
-        "intro 约100字，summary 约180-240字，round text 只描述赛果和比分走势。"
+        "intro 约120字，要像爆款开场钩子，第一句就把胜负、碾压、翻盘或大将战打出来。"
+        "round text 不要机械罗列每局，要把赛果串成抓马剧情，突出首轮一血、连胜、被终结、收官局等转折。"
+        "mvp_text 要给出获胜方/全场大功臣，也可以点出败方最伤的一环，但措辞保持电竞吐槽感，不做人身攻击。"
+        "summary 约180-260字，用最终宣判口吻收束，必须有激情、有记忆点。"
         "所有比分、胜方、地图、选手、是否有大将战必须与结构化赛果完全一致。"
         f"\n\n结构化赛果：\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
     )
@@ -109,8 +116,9 @@ def generate_article_locally(report: BattleReport) -> GeneratedArticle:
         round_reviews = [("比赛结果", f"本场最终结果为 {score}。页面未解析到逐局对阵，建议人工复核原始链接。")]
 
     mvp_text = (
-        f"{mvp.display_name}本场打出{mvp.wins}胜{mvp.losses}负，最长{mvp.max_streak}连胜。"
-        "按“连胜次数优先、终结比赛其次、胜率兜底”的规则，他是本场 MVP。"
+        f"🔥 MVP 给到{mvp.display_name}！{mvp.wins}胜{mvp.losses}负，最长{mvp.max_streak}连胜，"
+        "这就是今天最硬的战绩单。"
+        f"{fall_guy_text(report)}"
     )
 
     summary = build_summary(report, mvp)
@@ -127,6 +135,7 @@ def generate_article_locally(report: BattleReport) -> GeneratedArticle:
 
 def build_article_payload(report: BattleReport, mvp: PlayerStat) -> dict[str, object]:
     ace_match = report.ace_round.matches[0] if report.ace_round and report.ace_round.matches else None
+    fall_guy = choose_fall_guy(report)
     return {
         "match_id": report.match_id,
         "date": report.match_date.isoformat() if report.match_date else "",
@@ -180,6 +189,28 @@ def build_article_payload(report: BattleReport, mvp: PlayerStat) -> dict[str, ob
             "max_streak": mvp.max_streak,
             "closing_win": mvp.closing_win,
         },
+        "fall_guy_candidate": {
+            "name": fall_guy.display_name,
+            "race": fall_guy.race,
+            "team": fall_guy.team,
+            "wins": fall_guy.wins,
+            "losses": fall_guy.losses,
+            "max_streak": fall_guy.max_streak,
+        }
+        if fall_guy
+        else None,
+        "player_stats": [
+            {
+                "name": player.display_name,
+                "team": player.team,
+                "race": player.race,
+                "wins": player.wins,
+                "losses": player.losses,
+                "max_streak": player.max_streak,
+                "closing_win": player.closing_win,
+            }
+            for player in report.player_stats
+        ],
     }
 
 
@@ -212,17 +243,21 @@ def describe_round(report: BattleReport, round_item: Round) -> str:
     if not round_item.matches:
         return "本轮没有实际对局记录，页面显示为 Super Ace 规则说明或未进行大将战。"
 
-    lead = f"{round_item.name}，{report.team_a.display_name} {round_item.score_a}:{round_item.score_b} {report.team_b.display_name}。"
+    winner_team = round_item.winner_team or winning_team_name(report, round_item)
+    lead = (
+        f"{round_item.name}直接开炸！{winner_team}打出{round_item.score_a}:{round_item.score_b}，"
+        "这一轮就是把节奏摁在手里！"
+    )
     winners = [game.winner_display for game in round_item.matches]
     streak_player, streak = _round_streak(round_item)
     highlights: list[str] = []
     if winners:
-        highlights.append(f"本轮胜场来自：{'、'.join(winners)}。")
+        highlights.append(f"胜场名单是：{'、'.join(winners)}，火力点一个接一个往前顶！")
     if streak_player and streak >= 2:
-        highlights.append(f"{streak_player}在这一轮打出{streak}连胜，是比分拉开的关键。")
+        highlights.append(f"{streak_player}{streak}连胜太炸裂，硬生生把对面节奏打断！")
     closing = round_item.matches[-1]
     opponent = closing.player_b.display_name if closing.winner == closing.player_a.raw_name else closing.player_a.display_name
-    highlights.append(f"收官局在 {closing.map_name} 展开，{closing.winner_display}击败{opponent}，为本轮结果收尾。")
+    highlights.append(f"最后在{closing.map_name}，{closing.winner_display}收掉{opponent}，这一刀就是封口局！")
     return lead + "".join(highlights)
 
 
@@ -233,7 +268,7 @@ def sanitize_article(report: BattleReport, article: GeneratedArticle, fallback: 
         text = ""
         if index < len(provided):
             text = provided[index][1].strip()
-        if not text or has_fact_conflict(report, text) or is_ace_round(round_item):
+        if not text or has_fact_conflict(report, text) or (is_ace_round(round_item) and misses_ace_round_facts(round_item, text)):
             text = describe_round(report, round_item)
         round_reviews.append((round_item.name, text))
 
@@ -280,6 +315,13 @@ def has_fact_conflict(report: BattleReport, text: str) -> bool:
     return False
 
 
+def misses_ace_round_facts(round_item: Round, text: str) -> bool:
+    if not round_item.matches:
+        return False
+    game = round_item.matches[-1]
+    return game.map_name not in text or game.winner_display not in text
+
+
 def build_short_title(report: BattleReport, mvp: PlayerStat) -> str:
     winner = report.winner_team.display_name
     loser = report.loser_team.display_name
@@ -310,9 +352,9 @@ def describe_ace_round(report: BattleReport, round_item: Round) -> str:
     loser_player = game.player_b if game.winner == game.player_a.raw_name else game.player_a
     winner_team = round_item.winner_team or team_name_for_player(report, winner_player.raw_name) or report.winner_team.display_name
     return (
-        f"大将战一局定胜负，{winner_player.display_name}({winner_player.race})在{game.map_name}地图上"
-        f"击败{loser_player.display_name}({loser_player.race})，帮助{winner_team}拿下决胜局，"
-        f"最终总比分定格为{report.team_a.display_name} {report.score_text} {report.team_b.display_name}。"
+        f"🔥 大将战来了，这就是全场最窒息的一刀！{winner_player.display_name}({winner_player.race})"
+        f"在{game.map_name}地图上击败{loser_player.display_name}({loser_player.race})，"
+        f"帮{winner_team}把决胜局硬生生拿下！最终总比分定格为{report.team_a.display_name} {report.score_text} {report.team_b.display_name}。"
     )
 
 
@@ -329,15 +371,16 @@ def build_intro(report: BattleReport, mvp: PlayerStat) -> str:
     if report.ace_round and report.ace_round.matches:
         ace = report.ace_round.matches[-1]
         return (
-            f"{date_text}，{report.league_name}战罢。{winner}与{loser}前两轮战成1:1，"
-            f"比赛被拖入大将战。决胜局中，{ace.winner_display}在{ace.map_name}地图完成收官，"
-            f"帮助{winner}以总比分{report.winner_team.score}:{report.loser_team.score}险胜。"
-            f"{mvp.display_name}本场打出{mvp.wins}胜{mvp.losses}负，仍是全场最亮眼的数据点之一。"
+            f"炸裂！{date_text}的{report.league_name}直接打到大将战！{winner}和{loser}前两轮杀成1:1，"
+            f"最后{ace.winner_display}在{ace.map_name}站出来收官，帮{winner}以"
+            f"{report.winner_team.score}:{report.loser_team.score}惊险封神！"
+            f"{mvp.display_name}{mvp.wins}胜{mvp.losses}负，今天这存在感拉满！"
         )
     return (
-        f"{date_text}，{report.league_name}战罢。{winner}与{loser}完成前两轮较量，"
-        f"{winner}以总比分{report.winner_team.score}:{report.loser_team.score}收下胜利。"
-        f"{mvp.display_name}凭借{mvp.wins}胜{mvp.losses}负和最长{mvp.max_streak}连胜成为比赛焦点。"
+        f"无情碾压！{date_text}的{report.league_name}，{winner}以"
+        f"{report.winner_team.score}:{report.loser_team.score}击败{loser}！"
+        f"{mvp.display_name}直接打出{mvp.wins}胜{mvp.losses}负、最长{mvp.max_streak}连胜，"
+        "这波就是天神下凡级别的团队赛输出！"
     )
 
 
@@ -351,16 +394,17 @@ def build_summary(report: BattleReport, mvp: PlayerStat) -> str:
     if report.ace_round and report.ace_round.matches:
         ace = report.ace_round.matches[-1]
         return (
-            f"本场走势非常清晰：{base}，前两轮过后双方战成1:1。"
-            f"真正的胜负手出现在大将战，{ace.winner_display}在{ace.map_name}地图击败对手，"
-            f"为{winner}锁定{report.winner_team.score}:{report.loser_team.score}的总比分。"
-            f"{mvp.display_name}虽然凭借{mvp.wins}胜{mvp.losses}负和最长{mvp.max_streak}连胜打出存在感，"
-            f"但{winner}在决胜局的收官更稳，最终笑到最后。"
+            f"最终宣判：这场比赛就是一部团战爽剧！{base}，前两轮打成1:1，悬念直接拉满。"
+            f"真正的胜负手出现在大将战，{ace.winner_display}在{ace.map_name}一锤定音，"
+            f"为{winner}锁死{report.winner_team.score}:{report.loser_team.score}！"
+            f"{mvp.display_name}{mvp.wins}胜{mvp.losses}负、最长{mvp.max_streak}连胜已经够炸，"
+            f"但{winner}最后这口气更硬，关键局就是不手软！"
         )
     return (
-        f"本场走势非常清晰：{base}，{winner}最终以{report.winner_team.score}:{report.loser_team.score}击败{loser}。"
-        f"{mvp.display_name}凭借{mvp.wins}胜{mvp.losses}负和最长{mvp.max_streak}连胜成为场上焦点，"
-        f"{loser}虽有单点回应，但没能把比赛拖入大将战。"
+        f"最终宣判：{winner}这场就是无情碾压！{base}，总比分"
+        f"{report.winner_team.score}:{report.loser_team.score}带走{loser}。"
+        f"{mvp.display_name}{mvp.wins}胜{mvp.losses}负、最长{mvp.max_streak}连胜，"
+        f"堪称本场最炸火力点。{loser}不是没有挣扎，但没能把比赛拖进大将战，节奏被彻底按住了！"
     )
 
 
@@ -369,6 +413,30 @@ def team_name_for_player(report: BattleReport, raw_name: str) -> str | None:
         if any(player.raw_name == raw_name for player in team.players):
             return team.display_name
     return None
+
+
+def choose_fall_guy(report: BattleReport) -> PlayerStat | None:
+    loser_players = [player for player in report.player_stats if player.team == report.loser_team.display_name]
+    if not loser_players:
+        return None
+    return sorted(
+        loser_players,
+        key=lambda player: (player.losses, player.losses - player.wins, -player.wins),
+        reverse=True,
+    )[0]
+
+
+def fall_guy_text(report: BattleReport) -> str:
+    player = choose_fall_guy(report)
+    if not player or player.losses == 0:
+        return ""
+    return f" 败方这边，{player.display_name}{player.wins}胜{player.losses}负有点伤，今天真得背点锅。"
+
+
+def winning_team_name(report: BattleReport, round_item: Round) -> str:
+    if round_item.winner_team:
+        return round_item.winner_team
+    return report.team_a.display_name if round_item.score_a >= round_item.score_b else report.team_b.display_name
 
 
 def _round_streak(round_item: Round) -> tuple[str | None, int]:

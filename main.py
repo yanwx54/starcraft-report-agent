@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from dataclasses import asdict
 
 from agent import StarCraftReportAgent
@@ -19,6 +20,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     args = build_parser().parse_args()
     target = args.url or args.match_id
     result = StarCraftReportAgent().run(target, force=args.force, publish=args.publish)
