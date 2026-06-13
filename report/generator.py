@@ -9,6 +9,20 @@ from translator.deepseek import DeepSeekTranslator
 
 
 WECHAT_TITLE_MAX_CHARS = 25
+AI_SLOP_REPLACEMENTS = {
+    "最终宣判：": "说到最后，",
+    "最终宣判": "说到最后",
+    "真正的胜负手出现在": "胜负手在",
+    "关键性的": "关键的",
+    "至关重要": "很要紧",
+    "彰显": "打出",
+    "体现": "看得出",
+    "证明": "说明",
+    "格局": "局面",
+    "不可磨灭的印记": "记忆点",
+    "天神下凡级别的": "很硬的",
+    "无情碾压": "压得很狠",
+}
 
 
 @dataclass
@@ -51,12 +65,16 @@ def generate_article_with_deepseek(report: BattleReport) -> GeneratedArticle | N
     system = (
         "你是一位顶级电竞专栏作家，负责运营爆款《星际争霸：重制版》微信公众号。"
         "受众是中国星际老粉，喜欢激情、抓马、情怀和辛辣点评。"
-        "本文采用激昂/解说流 Excited 风格：像现场解说拉满嗓门一样写！"
-        "多用感叹号和短句，可使用 🔥、😭、🚑、💎、🏠、🦖、⚡、🔫 等 emoji。"
-        "可以使用“炸裂”“封神”“天神下凡”“无情碾压”“白给”“操作拉满”“没道理的”“按在地上摩擦”等电竞表达。"
+        "本文采用激昂/解说流 Excited 风格，但要像真人老粉复盘，不要像模板营销文。"
+        "可以有火气、有梗、有短句，但每段都要落在具体比分、连胜、地图和选手身上。"
+        "可少量使用“炸裂”“封神”“白给”“操作拉满”“没道理的”等电竞表达，但不要堆热词。"
+        "emoji 全文最多 2 个，标题不要 emoji。"
         "但只能基于结构化赛果写作：没有录像数据，不得编造具体战术细节、APM 数值、心理活动或不存在的神仙操作。"
         "地图名必须使用输入中的中文翻译名，选手名和队名使用输入中的显示名。"
         "必须聚焦团队赛：团队总比分、轮次比分、连胜、转折点、最后收官局或大将战是文章核心。"
+        "去除 AI 写作痕迹：少用“最终宣判”“至关重要”“彰显”“体现”“证明”“格局”“不仅……而且……”等套话；"
+        "不要机械三段式，不要每段都用同样句式结尾，不要把简单事实拔高成宏大意义。"
+        "相信读者懂星际，少解释口号，多写具体赛果和你作为作者的判断。"
         "如果结构化赛果中 has_ace_match 为 true，必须写大将战，严禁写未进行大将战、无需大将战或由前两轮决定。"
         "如果 has_ace_match 为 false，才可以写未进行大将战。"
         "必须返回严格 JSON，不要 Markdown，不要代码块。"
@@ -66,10 +84,11 @@ def generate_article_with_deepseek(report: BattleReport) -> GeneratedArticle | N
         "title、intro、round_reviews、mvp_text、summary。"
         f"title 必须适合公众号推送，最多 {WECHAT_TITLE_MAX_CHARS} 个字符。"
         "round_reviews 是数组，长度必须与 rounds 一致，每项包含 name 和 text。"
-        "intro 约120字，要像爆款开场钩子，第一句就把胜负、碾压、翻盘或大将战打出来。"
-        "round text 不要机械罗列每局，要把赛果串成抓马剧情，突出首轮一血、连胜、被终结、收官局等转折。"
+        "intro 约90-130字，第一句打出结果和最大看点，不要写空泛金句。"
+        "round text 不要机械罗列每局，要把赛果串成自然复盘，突出首轮一血、连胜、被终结、收官局等转折。"
         "mvp_text 要给出获胜方/全场大功臣，也可以点出败方最伤的一环，但措辞保持电竞吐槽感，不做人身攻击。"
-        "summary 约180-260字，用最终宣判口吻收束，必须有激情、有记忆点。"
+        "summary 约150-230字，像公众号作者收尾点评：直接、有态度、有一两个具体判断。"
+        "避免“首先/其次/最后/此外/然而/综上”“这不仅仅是……而是……”等 AI 连接句。"
         "所有比分、胜方、地图、选手、是否有大将战必须与结构化赛果完全一致。"
         f"\n\n结构化赛果：\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
     )
@@ -99,6 +118,7 @@ def generate_article_with_deepseek(report: BattleReport) -> GeneratedArticle | N
             summary=decode_literal_unicode(str(data.get("summary") or local.summary)),
             ai_generated=True,
         )
+        article = humanize_article(article)
         return sanitize_article(report, article, local)
     except Exception:
         return None
@@ -131,6 +151,32 @@ def generate_article_locally(report: BattleReport) -> GeneratedArticle:
         mvp_text=mvp_text,
         summary=summary,
     )
+
+
+def humanize_article(article: GeneratedArticle) -> GeneratedArticle:
+    return GeneratedArticle(
+        title=strip_emojis(humanize_text(article.title)),
+        intro=humanize_text(article.intro),
+        round_reviews=[(name, humanize_text(text)) for name, text in article.round_reviews],
+        mvp=article.mvp,
+        mvp_text=humanize_text(article.mvp_text),
+        summary=humanize_text(article.summary),
+        ai_generated=article.ai_generated,
+    )
+
+
+def humanize_text(text: str) -> str:
+    for source, target in AI_SLOP_REPLACEMENTS.items():
+        text = text.replace(source, target)
+    text = re.sub(r"这不(?:仅|只是|仅仅)是([^，。；]+)[，,]而是([^。；]+)", r"这更像是\2", text)
+    text = re.sub(r"(此外|然而|综上)[，,]", "", text)
+    text = re.sub(r"([！!]){2,}", "！", text)
+    text = re.sub(r"([。；])\s+", r"\1", text)
+    return text.strip()
+
+
+def strip_emojis(text: str) -> str:
+    return re.sub(r"[\U0001F300-\U0001FAFF\u2600-\u27BF]", "", text).strip()
 
 
 def build_article_payload(report: BattleReport, mvp: PlayerStat) -> dict[str, object]:

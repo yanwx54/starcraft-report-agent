@@ -49,6 +49,10 @@ PLAYER_ID_MAP: dict[str, str] = {
     "米大师": "Midas",
 }
 
+MAP_CN_ALIASES: dict[str, str] = {
+    "에티": "态度",
+}
+
 
 @dataclass
 class TranslateRules:
@@ -106,11 +110,11 @@ def load_translate_rules(path: Path | None = None) -> TranslateRules:
             continue
 
         if "人名" in section and len(cells) >= 3:
-            for korean in cells[:2]:
+            for korean in expand_aliases(cells[:2]):
                 if korean:
                     rules.players[compact_korean_name(korean)] = cells[2]
         elif "地图" in section and len(cells) >= 4:
-            korean_names = [cells[0], cells[1]]
+            korean_names = expand_aliases([cells[0], cells[1]])
             english, chinese = cells[2], cells[3]
             for korean in korean_names:
                 if korean:
@@ -121,4 +125,16 @@ def load_translate_rules(path: Path | None = None) -> TranslateRules:
                 rules.maps[normalize_map_key(english)] = english
                 rules.maps_cn[normalize_map_key(english)] = chinese or english
 
+    for korean, chinese in MAP_CN_ALIASES.items():
+        key = normalize_map_key(korean)
+        rules.maps[key] = chinese
+        rules.maps_cn[key] = chinese
+
     return rules
+
+
+def expand_aliases(values: list[str]) -> list[str]:
+    aliases: list[str] = []
+    for value in values:
+        aliases.extend(part.strip() for part in re.split(r"[/,，、]", value) if part.strip())
+    return aliases

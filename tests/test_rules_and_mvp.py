@@ -5,7 +5,15 @@ from datetime import date
 from crawler.eloboard import ELOBoardClient, MatchSummary, choose_daily_match, parse_match_detail
 from cards.generator import generate_cards
 from database.store import HistoryStore
-from report.generator import WECHAT_TITLE_MAX_CHARS, choose_mvp, generate_article_locally, sanitize_article, GeneratedArticle
+from report.generator import (
+    WECHAT_TITLE_MAX_CHARS,
+    GeneratedArticle,
+    choose_mvp,
+    generate_article_locally,
+    humanize_text,
+    sanitize_article,
+    strip_emojis,
+)
 from report.html import compact_wechat_html, render_article_html
 from translator.rules import load_translate_rules
 from wechat.client import truncate_chars
@@ -16,6 +24,7 @@ def test_translate_rules_load_players_and_maps() -> None:
     assert rules.translate_player("김민철") == "永康"
     assert rules.translate_player("민철") == "永康"
     assert rules.translate_map("매치") == "赛点"
+    assert rules.translate_map("에티") == "态度"
 
 
 def test_parse_saved_shape_and_mvp() -> None:
@@ -170,6 +179,18 @@ def test_article_title_and_draft_title_stay_within_push_limit() -> None:
     long_title = "这是一条非常非常非常非常长的公众号推送标题用于测试截断规则"
     assert len(long_title) > WECHAT_TITLE_MAX_CHARS
     assert len(truncate_chars(long_title, WECHAT_TITLE_MAX_CHARS)) == WECHAT_TITLE_MAX_CHARS
+
+
+def test_humanize_article_text_removes_ai_slop() -> None:
+    text = "最终宣判：这不仅仅是一次胜利，而是格局的证明！！此外，永康打得很稳。"
+    cleaned = humanize_text(text)
+    assert "最终宣判" not in cleaned
+    assert "不仅仅" not in cleaned
+    assert "格局" not in cleaned
+    assert "证明" not in cleaned
+    assert "此外" not in cleaned
+    assert "！！" not in cleaned
+    assert strip_emojis("永康封神🔥") == "永康封神"
 
 
 def test_no_ace_match_omits_ace_card_and_article_block(tmp_path) -> None:
