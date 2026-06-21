@@ -15,6 +15,7 @@ from report.generator import (
     strip_emojis,
 )
 from report.html import compact_wechat_html, render_article_html
+from ratings.calculator import build_ratings
 from translator.rules import load_translate_rules
 from wechat.client import truncate_chars
 
@@ -223,10 +224,36 @@ def test_no_ace_match_omits_ace_card_and_article_block(tmp_path) -> None:
     rendered = render_article_html(report, article, image_urls, tmp_path / "article.html")
     assert "大将战 - Super Ace Match" not in rendered
     assert "未进行" not in rendered
+    assert "赛后评分" in rendered
     assert "\n" not in rendered
     assert "padding:24px 12px 52px" not in rendered
     assert "display:none" not in rendered
     assert "font-size:16px;line-height:1.75" in rendered
+
+
+def test_ratings_cover_all_players_and_generate_card(tmp_path) -> None:
+    html = """
+    <html><head><title>2026.06.09 (화) 스타 5:5 메이저 프로리그</title></head>
+    <body><article class="view-content">
+    Z 김민철 김성대 김정우 P 김윤중 변현제 T 이재호 정영재
+    [민철팀] 김민철 김성대 이재호
+    [윤중팀] 김윤중 변현제 정영재
+    [1SET - 7/4 프로리그]
+    1. [매치] 김민철Z (승) vs (패) 김윤중P
+    2. [제인] 김성대Z (패) vs (승) 변현제P
+    민철팀 (승) 1 : 1 (패) 윤중팀
+    최종 결과 민철팀 1 : 0 승
+    </article></body></html>
+    """
+    report = parse_match_detail(html, "https://example.com?wr_id=3000", "3000")
+    article = generate_article_locally(report)
+    ratings = build_ratings(report)
+    card_paths = generate_cards(report, article.mvp, tmp_path / "cards")
+
+    assert len(ratings) == len(report.player_stats)
+    assert ratings == sorted(ratings, key=lambda item: (item.score, item.stat.wins, -item.stat.losses), reverse=True)
+    assert "ratings" in card_paths
+    assert card_paths["ratings"].exists()
 
 
 def test_compact_wechat_html_removes_template_whitespace() -> None:
