@@ -5,6 +5,7 @@ from datetime import date
 from crawler.eloboard import ELOBoardClient, MatchSummary, choose_daily_match, parse_match_detail
 from cards.generator import generate_cards
 from database.store import HistoryStore
+from models import BattleReport, PlayerStat, Team
 from report.generator import (
     WECHAT_TITLE_MAX_CHARS,
     GeneratedArticle,
@@ -254,6 +255,29 @@ def test_ratings_cover_all_players_and_generate_card(tmp_path) -> None:
     assert ratings == sorted(ratings, key=lambda item: (item.score, item.stat.wins, -item.stat.losses), reverse=True)
     assert "ratings" in card_paths
     assert card_paths["ratings"].exists()
+
+
+def test_rating_comments_are_unique_for_same_score_band() -> None:
+    report = BattleReport(
+        match_id="rating-comments",
+        source_url="https://example.com",
+        title_raw="rating comments",
+        match_date=None,
+        league_name="测试联赛",
+        prize_text="",
+        team_a=Team("A", "甲队", [], 1, True),
+        team_b=Team("B", "乙队", [], 0, False),
+        rounds=[],
+        player_stats=[
+            PlayerStat("a", "甲", "甲队", "T", wins=1, losses=1, max_streak=1),
+            PlayerStat("b", "乙", "甲队", "P", wins=1, losses=1, max_streak=1),
+            PlayerStat("c", "丙", "乙队", "Z", wins=1, losses=1, max_streak=1),
+            PlayerStat("d", "丁", "乙队", "T", wins=1, losses=1, max_streak=1),
+        ],
+    )
+
+    comments = [rating.comment for rating in build_ratings(report)]
+    assert len(comments) == len(set(comments))
 
 
 def test_compact_wechat_html_removes_template_whitespace() -> None:
