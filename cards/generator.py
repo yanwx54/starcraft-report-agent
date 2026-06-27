@@ -8,8 +8,6 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from config.settings import settings
 from models import BattleReport, MatchGame, PlayerStat, Round, Team
-from ratings.calculator import build_ratings
-from ratings.image import draw_ratings_card
 from translator.rules import PLAYER_ID_MAP
 
 
@@ -41,9 +39,6 @@ def generate_cards(report: BattleReport, mvp: PlayerStat, out_dir: Path | None =
             draw_ace_round_card(report, round_item, paths[key])
         else:
             draw_round_card(report, round_item, round_index, paths[key])
-
-    paths["ratings"] = out_dir / "ratings.png"
-    draw_ratings_card(report, build_ratings(report), paths["ratings"])
 
     return paths
 

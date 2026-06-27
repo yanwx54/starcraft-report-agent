@@ -24,14 +24,8 @@
 {% if ratings %}
 <section style="margin:8px 0 10px;">
 <p style="margin:0 0 4px;padding:0 0 4px;border-bottom:1px solid #e5e7eb;color:#111827;font-size:17px;font-weight:800;">赛后评分</p>
-<p style="margin:0 0 6px;color:#6b7280;font-size:13px;line-height:1.55;">10分制，全部10名选手参与。高分不硬吹，低分不保守。</p>
-{% if images.ratings %}<p style="margin:2px 0 0;"><img src="{{ images.ratings }}" style="width:100%;display:block;border-radius:5px;" /></p>{% endif %}
-</section>
-<section style="margin:8px 0 12px;">
-{% for rating in ratings %}<section style="margin:0 0 7px;padding:9px 10px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:6px;">
-<p style="margin:0 0 3px;"><span style="display:inline-block;min-width:44px;color:{% if rating.score >= 8.5 %}#16a34a{% elif rating.score >= 7.0 %}#2563eb{% elif rating.score >= 5.8 %}#b7791f{% elif rating.score >= 4.5 %}#ea580c{% else %}#e11d48{% endif %};font-size:24px;font-weight:900;">{{ "%.1f"|format(rating.score) }}</span><strong style="color:#111827;font-size:17px;">{{ rating.stat.display_name }}</strong><span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;background:{% if rating.score >= 8.5 %}#dcfce7{% elif rating.score >= 7.0 %}#dbeafe{% elif rating.score >= 5.8 %}#fef3c7{% elif rating.score >= 4.5 %}#ffedd5{% else %}#ffe4e6{% endif %};color:#111827;font-size:12px;font-weight:800;">{{ rating.tag }}</span><span style="margin-left:6px;color:#8a93a3;font-size:12px;">{{ rating.stat.wins }}胜{{ rating.stat.losses }}负</span></p>
-<p style="margin:0;color:#4b5563;font-size:15px;line-height:1.6;">{{ rating.comment }}</p>
-</section>{% endfor %}
+<p style="margin:0 0 6px;color:#6b7280;font-size:13px;line-height:1.55;">10分制，只统计本场出战选手。</p>
+{% for rating in ratings %}<p style="margin:0;padding:6px 0;border-bottom:1px solid #eef2f7;color:#111827;font-size:15px;line-height:1.45;"><span style="display:inline-block;width:24px;color:#9ca3af;font-size:12px;">{{ "%02d"|format(loop.index) }}</span><span style="display:inline-block;width:48px;color:{% if rating.score >= 8.5 %}#16a34a{% elif rating.score >= 7.0 %}#2563eb{% elif rating.score >= 5.8 %}#b7791f{% elif rating.score >= 4.5 %}#ea580c{% else %}#e11d48{% endif %};font-size:22px;font-weight:900;">{{ "%.1f"|format(rating.score) }}</span><strong style="display:inline-block;min-width:76px;color:#111827;font-size:16px;">{{ rating.stat.display_name }}</strong><span style="color:#6b7280;font-size:13px;">{{ rating.stat.team }} · {{ rating.stat.wins }}胜{{ rating.stat.losses }}负</span></p>{% endfor %}
 </section>
 {% endif %}
 <section style="margin:10px 0 0;">
