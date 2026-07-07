@@ -61,6 +61,10 @@
 | 네오실피드 | 실피    | Neo Sylphid | 小仙女   |
 | 녹아웃     | 녹아    | KnockOut    | 击倒     |
 | 폴스타     | 폴스    | Pole Star   | 北极星   |
+| 오디세이 | 오디 | Odyssey | 奥德赛 |
+| 컬러리스 페이트 | 컬러 | Colorless Fate | 无色命运 |
+| 아이올로스 | 아이 | Aiolos | 艾洛斯 |
+| 백룸 | 백룸 | Backrooms | 后室 |
 
 
 
