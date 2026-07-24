@@ -32,6 +32,7 @@ class Round:
     score_a: int = 0
     score_b: int = 0
     winner_team: str | None = None
+    ace_mode: str = ""
 
 
 @dataclass

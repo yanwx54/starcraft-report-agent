@@ -10,6 +10,7 @@ from report.generator import (
     GeneratedArticle,
     choose_mvp,
     generate_article_locally,
+    has_unsupported_process_detail,
     humanize_text,
     sanitize_article,
     strip_emojis,
@@ -24,6 +25,10 @@ def test_translate_rules_load_players_and_maps() -> None:
     rules = load_translate_rules()
     assert rules.translate_player("김민철") == "永康"
     assert rules.translate_player("민철") == "永康"
+    assert rules.translate_player("임홍규") == "屌丝"
+    assert rules.translate_player("홍규") == "屌丝"
+    assert rules.translate_player("송병구") == "石头"
+    assert rules.translate_player("병구") == "石头"
     assert rules.translate_map("매치") == "赛点"
     assert rules.translate_map("에티") == "态度"
 
@@ -115,8 +120,101 @@ def test_parse_unnumbered_super_ace_and_spaced_team_score() -> None:
     assert report.rounds[0].score_b == 0
     assert report.ace_round is not None
     assert len(report.ace_round.matches) == 1
+    assert report.ace_round.ace_mode == "大将战（随机抽签）"
     assert report.ace_round.matches[0].map_name == "击倒"
     assert report.ace_round.matches[0].winner_display == "橘右京"
+
+
+def test_ace_lottery_modes_are_translated() -> None:
+    cases = {
+        "나락전": "大将战（多败选手）",
+        "극락전": "大将战（多胜选手）",
+        "자연빵": "大将战（随机抽签）",
+    }
+    for korean, expected in cases.items():
+        html = f"""
+        <html><head><title>2026.06.09 (화) 스타 5:5 메이저 프로리그</title></head>
+        <body><article class="view-content">
+        Z 김정우 P 김윤중 T 정영재
+        [영재팀] 정영재 김정우
+        [병영팀] 김윤중
+        [1SET - 7/4 프로리그]
+        1. [제인] 정영재T (승) vs (패) 김윤중P
+        영재팀 (승) 1 : 0 (패) 병영 팀
+        [3SET - Super Ace Match]
+        슈에 방식 룰렛: {korean}
+        [녹아] 정영재T (승) vs (패) 김윤중P
+        최종 결과 영재팀 2 : 1 승
+        </article></body></html>
+        """
+        report = parse_match_detail(html, "https://example.com?wr_id=2450", "2450")
+        article = generate_article_locally(report)
+        assert report.ace_round is not None
+        assert report.ace_round.ace_mode == expected
+        assert expected in article.intro
+        assert expected in article.summary
+
+
+def test_player_max_streak_resets_between_rounds() -> None:
+    html = """
+    <html><head><title>2026.06.09 (화) 스타 5:5 메이저 프로리그</title></head>
+    <body><article class="view-content">
+    Z 김민철 김성대 P 김윤중 변현제 T 정영재
+    [민철팀] 김민철 김성대
+    [윤중팀] 김윤중 변현제 정영재
+    [1SET - 7/4 프로리그]
+    1. [매치] 김민철Z (승) vs (패) 김윤중P
+    민철팀 (승) 1 : 0 (패) 윤중팀
+    [2SET - 9/5 위너스리그]
+    1. [제인] 김민철Z (승) vs (패) 김윤중P
+    2. [녹아] 김민철Z (승) vs (패) 변현제P
+    3. [폴스] 김민철Z (승) vs (패) 정영재T
+    민철팀 (승) 3 : 0 (패) 윤중팀
+    최종 결과 민철팀 2 : 0 승
+    </article></body></html>
+    """
+    report = parse_match_detail(html, "https://example.com?wr_id=2450", "2450")
+    stat = next(player for player in report.player_stats if player.display_name == "永康")
+    article = generate_article_locally(report)
+    combined = "\n".join([article.intro, article.mvp_text, article.summary])
+
+    assert stat.wins == 4
+    assert stat.max_streak == 3
+    assert "4连胜" not in combined
+    assert "最长3连胜" in combined
+
+
+def test_sanitize_article_rejects_fabricated_process_details() -> None:
+    html = """
+    <html><head><title>2026.06.09 (화) 스타 5:5 메이저 프로리그</title></head>
+    <body><article class="view-content">
+    Z 김민철 P 김윤중
+    [민철팀] 김민철
+    [윤중팀] 김윤중
+    [1SET - 7/4 프로리그]
+    1. [매치] 김민철Z (승) vs (패) 김윤중P
+    민철팀 (승) 1 : 0 (패) 윤중팀
+    최종 결과 민철팀 1 : 0 승
+    </article></body></html>
+    """
+    report = parse_match_detail(html, "https://example.com?wr_id=2450", "2450")
+    local = generate_article_locally(report)
+    bad = GeneratedArticle(
+        title=local.title,
+        intro="永康靠极限 APM 和多线空投打穿对手。",
+        round_reviews=[(report.rounds[0].name, "永康前期运营爆炸，经济线压制到对面没法玩。")],
+        mvp=local.mvp,
+        mvp_text=local.mvp_text,
+        summary="永康用神仙操作完成偷家，这局过程太离谱。",
+        ai_generated=True,
+    )
+
+    checked = sanitize_article(report, bad, local)
+    combined = "\n".join([checked.intro, checked.summary, *[text for _, text in checked.round_reviews]])
+    assert has_unsupported_process_detail(report, bad.intro)
+    assert "APM" not in combined
+    assert "空投" not in combined
+    assert "经济线" not in combined
 
 
 def test_article_for_ace_match_cannot_say_no_ace() -> None:

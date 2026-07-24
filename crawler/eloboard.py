@@ -292,6 +292,7 @@ def parse_rounds(
         body = text[start:end]
         name = normalize_round_name(header.group(1))
         current_round = Round(name=name)
+        current_round.ace_mode = parse_ace_mode(body)
         current_round.matches = parse_games(body, rules, race_map)
         parse_round_score(body, current_round, team_a, team_b)
         infer_round_score_from_matches(current_round, team_a, team_b)
@@ -308,6 +309,18 @@ def normalize_round_name(name: str) -> str:
     name = name.replace("프로리그", "职业联赛制").replace("위너스리그", "胜者联赛制")
     name = name.replace("Super Ace Match", "Super Ace Match")
     return name
+
+
+def parse_ace_mode(body: str) -> str:
+    modes = {
+        "나락전": "大将战（多败选手）",
+        "극락전": "大将战（多胜选手）",
+        "자연빵": "大将战（随机抽签）",
+    }
+    for korean, chinese in modes.items():
+        if re.search(rf"슈에\s*방식\s*룰렛\s*:\s*{korean}", body):
+            return chinese
+    return ""
 
 
 GAME_RE = re.compile(
@@ -425,23 +438,26 @@ def calculate_player_stats(team_a: Team, team_b: Team, rounds: list[Round], ace_
     for player in team_b.players:
         init(player, team_b)
 
-    streaks: dict[str, int] = {name: 0 for name in stats}
-    all_games = [game for round_item in [*rounds, *([ace_round] if ace_round else [])] for game in round_item.matches]
-    for index, game in enumerate(all_games):
-        for player in (game.player_a, game.player_b):
-            if player.raw_name not in stats:
-                team = team_a if any(p.raw_name == player.raw_name for p in team_a.players) else team_b
-                stats[player.raw_name] = PlayerStat(player.raw_name, player.display_name, team.display_name, player.race)
-                streaks[player.raw_name] = 0
+    all_rounds = [*rounds, *([ace_round] if ace_round else [])]
+    all_games = [game for round_item in all_rounds for game in round_item.matches]
+    last_game = all_games[-1] if all_games else None
+    for round_item in all_rounds:
+        streaks: dict[str, int] = {name: 0 for name in stats}
+        for game in round_item.matches:
+            for player in (game.player_a, game.player_b):
+                if player.raw_name not in stats:
+                    team = team_a if any(p.raw_name == player.raw_name for p in team_a.players) else team_b
+                    stats[player.raw_name] = PlayerStat(player.raw_name, player.display_name, team.display_name, player.race)
+                    streaks[player.raw_name] = 0
 
-        loser = game.player_b.raw_name if game.winner == game.player_a.raw_name else game.player_a.raw_name
-        stats[game.winner].wins += 1
-        stats[loser].losses += 1
-        streaks[game.winner] = streaks.get(game.winner, 0) + 1
-        streaks[loser] = 0
-        stats[game.winner].max_streak = max(stats[game.winner].max_streak, streaks[game.winner])
-        if index == len(all_games) - 1:
-            stats[game.winner].closing_win = True
+            loser = game.player_b.raw_name if game.winner == game.player_a.raw_name else game.player_a.raw_name
+            stats[game.winner].wins += 1
+            stats[loser].losses += 1
+            streaks[game.winner] = streaks.get(game.winner, 0) + 1
+            streaks[loser] = 0
+            stats[game.winner].max_streak = max(stats[game.winner].max_streak, streaks[game.winner])
+            if game is last_game:
+                stats[game.winner].closing_win = True
 
     return list(stats.values())
 
