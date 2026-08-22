@@ -9,9 +9,10 @@ from translator.deepseek import DeepSeekTranslator
 
 
 WECHAT_TITLE_MAX_CHARS = 25
+HUMANIZER_SKILL_SOURCE = "https://github.com/blader/humanizer"
 AI_SLOP_REPLACEMENTS = {
-    "最终宣判：": "说到最后，",
-    "最终宣判": "说到最后",
+    "最终宣判：": "",
+    "最终宣判": "",
     "真正的胜负手出现在": "胜负手在",
     "关键性的": "关键的",
     "至关重要": "很要紧",
@@ -23,6 +24,15 @@ AI_SLOP_REPLACEMENTS = {
     "天神下凡级别的": "很硬的",
     "无情碾压": "压得很狠",
 }
+
+# The report writer follows blader/humanizer as a writing skill. The API prompt
+# carries the editorial rules, while the local rewrite below keeps the fallback
+# path consistent when no model is configured.
+HUMANIZER_SKILL_PROMPT = (
+    f"按 {HUMANIZER_SKILL_SOURCE} 的 humanizer 规则润色成稿：保留每个事实、姓名、比分、地图和模式，不得编造信息；"
+    "删掉夸大意义、广告腔、模糊归因、套话、机械三段式、重复句式和聊天机器人式开场；"
+    "句子长短错开，使用直接的动词和具体赛果，保留电竞作者的口语感；不要为了显得自然而添加任何事实。"
+)
 
 
 @dataclass
@@ -47,11 +57,12 @@ def choose_mvp(report: BattleReport) -> PlayerStat:
 
 
 def generate_article(report: BattleReport, use_ai: bool = True) -> GeneratedArticle:
+    local = humanize_article(generate_article_locally(report))
     if use_ai:
         ai_article = generate_article_with_deepseek(report)
         if ai_article:
             return ai_article
-    return generate_article_locally(report)
+    return sanitize_article(report, local, local)
 
 
 def generate_article_with_deepseek(report: BattleReport) -> GeneratedArticle | None:
@@ -60,7 +71,7 @@ def generate_article_with_deepseek(report: BattleReport) -> GeneratedArticle | N
         return None
 
     mvp = choose_mvp(report)
-    local = generate_article_locally(report)
+    local = humanize_article(generate_article_locally(report))
     payload = build_article_payload(report, mvp)
     system = (
         "你是一位顶级电竞专栏作家，负责运营爆款《星际争霸：重制版》微信公众号。"
@@ -77,6 +88,8 @@ def generate_article_with_deepseek(report: BattleReport) -> GeneratedArticle | N
         "去除 AI 写作痕迹：少用“最终宣判”“至关重要”“彰显”“体现”“证明”“格局”“不仅……而且……”等套话；"
         "不要机械三段式，不要每段都用同样句式结尾，不要把简单事实拔高成宏大意义。"
         "相信读者懂星际，少解释口号，多写具体赛果和你作为作者的判断。"
+        f"{HUMANIZER_SKILL_PROMPT}"
+        "有大将战时，必须明确写出抽签模式、两位大将选手、地图和胜者。"
         "如果结构化赛果中 has_ace_match 为 true，必须写大将战，严禁写未进行大将战、无需大将战或由前两轮决定。"
         "如果 has_ace_match 为 false，才可以写未进行大将战。"
         "必须返回严格 JSON，不要 Markdown，不要代码块。"
@@ -398,7 +411,14 @@ def misses_ace_round_facts(round_item: Round, text: str) -> bool:
     if not round_item.matches:
         return False
     game = round_item.matches[-1]
-    return game.map_name not in text or game.winner_display not in text
+    required = (
+        round_item.ace_mode or "大将战",
+        game.player_a.display_name,
+        game.player_b.display_name,
+        game.map_name,
+        game.winner_display,
+    )
+    return any(fact not in text for fact in required)
 
 
 def build_short_title(report: BattleReport, mvp: PlayerStat) -> str:
@@ -415,7 +435,18 @@ def build_short_title(report: BattleReport, mvp: PlayerStat) -> str:
 
 
 def misses_required_ace(report: BattleReport, text: str) -> bool:
-    return bool(report.ace_round and report.ace_round.matches and "大将" not in text and "Super Ace" not in text)
+    if not report.ace_round or not report.ace_round.matches:
+        return False
+    game = report.ace_round.matches[-1]
+    required = (
+        "大将战",
+        report.ace_round.ace_mode or "大将战",
+        game.player_a.display_name,
+        game.player_b.display_name,
+        game.map_name,
+        game.winner_display,
+    )
+    return any(fact not in text for fact in required)
 
 
 def is_ace_round(round_item: Round) -> bool:
@@ -428,13 +459,15 @@ def describe_ace_round(report: BattleReport, round_item: Round) -> str:
 
     game = round_item.matches[-1]
     winner_player = game.player_a if game.winner == game.player_a.raw_name else game.player_b
-    loser_player = game.player_b if game.winner == game.player_a.raw_name else game.player_a
     winner_team = round_item.winner_team or team_name_for_player(report, winner_player.raw_name) or report.winner_team.display_name
-    mode = f"{round_item.ace_mode}，" if round_item.ace_mode else ""
+    mode = round_item.ace_mode or "大将战"
+    player_a_team = team_name_for_player(report, game.player_a.raw_name) or "未知队伍"
+    player_b_team = team_name_for_player(report, game.player_b.raw_name) or "未知队伍"
     return (
-        f"🔥 大将战来了，{mode}{winner_player.display_name}({winner_player.race})"
-        f"在{game.map_name}地图上击败{loser_player.display_name}({loser_player.race})，"
-        f"帮{winner_team}把决胜局硬生生拿下！最终总比分定格为{report.team_a.display_name} {report.score_text} {report.team_b.display_name}。"
+        f"大将战抽签结果为{mode}：{game.player_a.display_name}({game.player_a.race}，{player_a_team})"
+        f" vs {game.player_b.display_name}({game.player_b.race}，{player_b_team})，"
+        f"地图是{game.map_name}，{winner_player.display_name}获胜，帮{winner_team}拿下决胜局。"
+        f"最终总比分为{report.team_a.display_name} {report.score_text} {report.team_b.display_name}。"
     )
 
 
@@ -449,11 +482,10 @@ def build_intro(report: BattleReport, mvp: PlayerStat) -> str:
     loser = report.loser_team.display_name
     date_text = format_date(report)
     if report.ace_round and report.ace_round.matches:
-        ace = report.ace_round.matches[-1]
+        ace_facts = ace_match_facts(report)
         return (
-            f"炸裂！{date_text}的{report.league_name}直接打到大将战！{winner}和{loser}前两轮杀成1:1，"
-            f"{report.ace_round.ace_mode + '，' if report.ace_round and report.ace_round.ace_mode else ''}"
-            f"最后{ace.winner_display}在{ace.map_name}收官，帮{winner}以"
+            f"{date_text}的{report.league_name}打到大将战，{winner}和{loser}前两轮战成1:1。"
+            f"{ace_facts}，帮{winner}以"
             f"{report.winner_team.score}:{report.loser_team.score}惊险封神！"
             f"{mvp.display_name}{mvp.wins}胜{mvp.losses}负，今天这存在感拉满！"
         )
@@ -473,11 +505,9 @@ def build_summary(report: BattleReport, mvp: PlayerStat) -> str:
         parts.append(f"{round_item.name}由{round_item.winner_team or '胜方'}以{round_item.score_a}:{round_item.score_b}拿下")
     base = "；".join(parts)
     if report.ace_round and report.ace_round.matches:
-        ace = report.ace_round.matches[-1]
+        ace_facts = ace_match_facts(report)
         return (
-            f"最终宣判：这场比赛就是一部团战爽剧！{base}，前两轮打成1:1，悬念直接拉满。"
-            f"真正的胜负手出现在大将战，{report.ace_round.ace_mode + '，' if report.ace_round and report.ace_round.ace_mode else ''}"
-            f"{ace.winner_display}在{ace.map_name}一锤定音，"
+            f"这场比赛前两轮打成1:1，{base}。{ace_facts}，"
             f"为{winner}锁死{report.winner_team.score}:{report.loser_team.score}！"
             f"{mvp.display_name}{mvp.wins}胜{mvp.losses}负、最长{mvp.max_streak}连胜已经够炸，"
             f"但{winner}最后这口气更硬，关键局就是不手软！"
@@ -495,6 +525,20 @@ def team_name_for_player(report: BattleReport, raw_name: str) -> str | None:
         if any(player.raw_name == raw_name for player in team.players):
             return team.display_name
     return None
+
+
+def ace_match_facts(report: BattleReport) -> str:
+    """Return the complete ace-match fact line used by every article section."""
+    if not report.ace_round or not report.ace_round.matches:
+        return ""
+    game = report.ace_round.matches[-1]
+    mode = report.ace_round.ace_mode or "大将战"
+    player_a_team = team_name_for_player(report, game.player_a.raw_name) or "未知队伍"
+    player_b_team = team_name_for_player(report, game.player_b.raw_name) or "未知队伍"
+    return (
+        f"大将战抽签结果为{mode}：{game.player_a.display_name}({player_a_team})"
+        f" vs {game.player_b.display_name}({player_b_team})，{game.map_name}地图由{game.winner_display}获胜"
+    )
 
 
 def choose_fall_guy(report: BattleReport) -> PlayerStat | None:

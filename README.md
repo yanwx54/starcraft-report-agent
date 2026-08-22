@@ -19,6 +19,7 @@
 - 正文使用公众号手机优先排版。
 - 公众号标题限制在 25 字以内。
 - 支持 DeepSeek 生成公众号风格正文，并使用结构化赛果做事实校验。
+- 写作阶段遵循 [blader/humanizer](https://github.com/blader/humanizer) 规则，DeepSeek 和本地兜底正文都会做人性化处理。
 - 支持微信公众号草稿创建。
 
 ## 安装

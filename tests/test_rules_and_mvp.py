@@ -9,6 +9,7 @@ from report.generator import (
     WECHAT_TITLE_MAX_CHARS,
     GeneratedArticle,
     choose_mvp,
+    generate_article,
     generate_article_locally,
     has_unsupported_process_detail,
     humanize_text,
@@ -123,6 +124,12 @@ def test_parse_unnumbered_super_ace_and_spaced_team_score() -> None:
     assert report.ace_round.ace_mode == "大将战（随机抽签）"
     assert report.ace_round.matches[0].map_name == "击倒"
     assert report.ace_round.matches[0].winner_display == "橘右京"
+    assert "橘右京" in article_text(report)
+
+
+def article_text(report):
+    article = generate_article_locally(report)
+    return "\n".join([article.intro, article.summary, *[text for _, text in article.round_reviews]])
 
 
 def test_ace_lottery_modes_are_translated() -> None:
@@ -153,6 +160,11 @@ def test_ace_lottery_modes_are_translated() -> None:
         assert report.ace_round.ace_mode == expected
         assert expected in article.intro
         assert expected in article.summary
+        ace_text = next(text for name, text in article.round_reviews if "大将战" in name or "Super Ace" in name)
+        assert expected in ace_text
+        assert "橘右京" in ace_text
+        assert "宝儿" in ace_text
+        assert "击倒" in ace_text
 
 
 def test_player_max_streak_resets_between_rounds() -> None:
@@ -290,6 +302,26 @@ def test_humanize_article_text_removes_ai_slop() -> None:
     assert "此外" not in cleaned
     assert "！！" not in cleaned
     assert strip_emojis("永康封神🔥") == "永康封神"
+
+
+def test_generate_article_humanizes_local_fallback() -> None:
+    html = """
+    <html><head><title>2026.06.09 (화) 스타 5:5 메이저 프로리그</title></head>
+    <body><article class="view-content">
+    Z 김민철 P 김윤중
+    [민철팀] 김민철
+    [윤중팀] 김윤중
+    [1SET - 7/4 프로리그]
+    1. [매치] 김민철Z (승) vs (패) 김윤중P
+    민철팀 (승) 1 : 0 (패) 윤중팀
+    최종 결과 민철팀 1 : 0 승
+    </article></body></html>
+    """
+    report = parse_match_detail(html, "https://example.com?wr_id=2452", "2452")
+    article = generate_article(report, use_ai=False)
+    combined = "\n".join([article.intro, article.summary, *[text for _, text in article.round_reviews]])
+    assert "最终宣判" not in combined
+    assert "天神下凡级别的" not in combined
 
 
 def test_no_ace_match_omits_ace_card_and_article_block(tmp_path) -> None:

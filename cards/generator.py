@@ -187,6 +187,7 @@ def draw_ace_round_card(report: BattleReport, round_item: Round, path: Path) -> 
         return
 
     game = round_item.matches[0]
+    draw_center_text(draw, round_item.ace_mode or "大将战", 540, 150, 25, GOLD, stroke_width=1, stroke_fill="#020713")
     left_wins = game.winner == game.player_a.raw_name
     draw_ace_player(draw, game.player_a.display_name, game.player_a.race, team_name_for(report, game.player_a.raw_name), 226, 290, left_wins)
     draw_ace_player(draw, game.player_b.display_name, game.player_b.race, team_name_for(report, game.player_b.raw_name), 854, 290, not left_wins)

@@ -32,6 +32,7 @@ export interface Round {
   scoreA: number;
   scoreB: number;
   winnerTeam: string | null;
+  aceMode?: string;
 }
 
 export interface TeamData {

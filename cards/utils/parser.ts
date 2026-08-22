@@ -104,9 +104,20 @@ export const parseInputText = (text: string): BattleReportData => {
          matches: [],
          scoreA: 0,
          scoreB: 0,
-         winnerTeam: null
+         winnerTeam: null,
+         aceMode: undefined
        };
        return;
+    }
+
+    if (currentRound && isAceMatch) {
+        const aceModes: Record<string, string> = {
+            '나락전': '大将战（多败选手）',
+            '극락전': '大将战（多胜选手）',
+            '자연빵': '大将战（随机抽签）'
+        };
+        const mode = Object.entries(aceModes).find(([korean]) => line.includes(korean));
+        if (mode) currentRound.aceMode = mode[1];
     }
 
     // Detect Match Result

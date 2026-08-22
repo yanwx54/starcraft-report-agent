@@ -23,6 +23,8 @@ const Card4Ace: React.FC<Props> = ({ data }) => {
 
   // Updated: Preserves "队" or "Team" if present in the data
   const displayWinnerTeam = winnerTeamName.toUpperCase();
+  const teamForPlayer = (player: string) =>
+      data.teamA.players.includes(player) ? data.teamA.name : data.teamB.name;
   
   // Helper for Race colors in the circle border
   const getRaceColor = (race: Race) => {
@@ -48,6 +50,7 @@ const Card4Ace: React.FC<Props> = ({ data }) => {
                 <h2 className="text-3xl font-black text-white uppercase tracking-widest font-exo">SET 3: SUPER ACE MATCH</h2>
                 <Trophy size={20} className="text-yellow-500" />
             </div>
+            <div className="text-yellow-400 font-bold text-sm">{round.aceMode || '大将战'}</div>
             <div className="text-slate-400 italic font-medium text-sm">"Winner Takes All"</div>
             
             {/* Top Right Winner Badge */}
@@ -71,7 +74,7 @@ const Card4Ace: React.FC<Props> = ({ data }) => {
                  )}
              </div>
              <div className="text-3xl font-bold text-white font-sc mb-1">{match.playerA}</div>
-             <div className="text-yellow-500/80 text-sm font-bold uppercase tracking-wider">{data.teamA.name.replace(/(队|Team)/g, '')} Team</div>
+             <div className="text-yellow-500/80 text-sm font-bold uppercase tracking-wider">{teamForPlayer(match.playerA).replace(/(队|Team)/g, '')} Team</div>
           </div>
 
           {/* Center VS */}
@@ -91,7 +94,7 @@ const Card4Ace: React.FC<Props> = ({ data }) => {
                  )}
              </div>
              <div className="text-3xl font-bold text-white font-sc mb-1">{match.playerB}</div>
-             <div className="text-slate-500 text-sm font-bold uppercase tracking-wider">{data.teamB.name.replace(/(队|Team)/g, '')} Team</div>
+             <div className="text-slate-500 text-sm font-bold uppercase tracking-wider">{teamForPlayer(match.playerB).replace(/(队|Team)/g, '')} Team</div>
           </div>
 
        </div>
