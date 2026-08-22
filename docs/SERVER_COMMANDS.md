@@ -258,6 +258,7 @@ DRY_RUN=0 python main.py --force --publish --json
 cd /opt/starcraft-report-agent
 git pull --ff-only origin main
 source .venv/bin/activate
+python -m pip install -r requirements.txt
 python -m pytest -q
 DRY_RUN=0 python main.py --force --publish --json
 ```

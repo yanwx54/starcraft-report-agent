@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from requests import Response
 
 from crawler.eloboard import ELOBoardClient, MatchSummary, choose_daily_match, parse_match_detail
 from cards.generator import generate_cards
@@ -98,6 +99,25 @@ def test_latest_valid_report_skips_unparseable_latest_candidate(monkeypatch) -> 
     assert report.match_id == "2453"
     assert report.player_stats
     assert report.rounds[0].matches
+
+
+def test_eloboard_cloudflare_challenge_has_actionable_error(monkeypatch) -> None:
+    client = ELOBoardClient()
+    response = Response()
+    response.status_code = 403
+    response.headers["Cf-Mitigated"] = "challenge"
+    response.url = "https://eloboard.com/"
+    monkeypatch.setattr(client.session, "get", lambda *args, **kwargs: response)
+
+    try:
+        client.fetch_html("https://eloboard.com/")
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("expected Cloudflare challenge error")
+
+    assert "Cloudflare JavaScript challenge" in message
+    assert "ELOBOARD_HTTP_PROXY" in message
 
 
 def test_parse_unnumbered_super_ace_and_spaced_team_score() -> None:

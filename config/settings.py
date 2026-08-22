@@ -36,6 +36,7 @@ class Settings:
         "ELOBOARD_LIST_URL",
         "https://eloboard.com/men/bbs/board.php?bo_table=pro_league",
     )
+    eloboard_http_proxy: str = os.getenv("ELOBOARD_HTTP_PROXY", "")
     deepseek_api_key: str = os.getenv("DEEPSEEK_API_KEY", "")
     deepseek_base_url: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
     deepseek_model: str = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")

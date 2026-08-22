@@ -44,6 +44,7 @@ WECHAT_APP_ID=
 WECHAT_APP_SECRET=
 PUSHPLUS_TOKEN=
 DATABASE_URL=sqlite:///output/agent.db
+ELOBOARD_HTTP_PROXY=
 ```
 
 说明：
@@ -54,6 +55,7 @@ DATABASE_URL=sqlite:///output/agent.db
 - `WECHAT_APP_ID` / `WECHAT_APP_SECRET`：用于上传图片和创建公众号草稿。
 - `PUSHPLUS_TOKEN`：可选，用于运行通知。
 - `DATABASE_URL`：默认使用 SQLite。
+- `ELOBOARD_HTTP_PROXY`：可选的 HTTP/HTTPS 代理地址；当服务器出口被 ELOBoard/Cloudflare 拦截时使用，例如 `http://user:password@host:port`。
 
 MySQL 示例：
 
@@ -272,6 +274,12 @@ templates/article.html.j2
 
 ```bash
 python -m pytest -q
+```
+
+服务器首次部署或拉取更新后，需要重新安装依赖：
+
+```bash
+python -m pip install -r requirements.txt
 ```
 
 测试覆盖：
