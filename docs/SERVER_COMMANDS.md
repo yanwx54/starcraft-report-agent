@@ -226,7 +226,8 @@ ELOBoard 站点开启了 Cloudflare Managed Challenge（Turnstile），普通 re
 
 1. 先用 curl_cffi 模拟 Chrome TLS 指纹快速请求。
 2. 若仍被挑战（403 + `Cf-Mitigated: challenge`），自动启动 camoufox 反检测浏览器
-   （无头 Firefox）完成验证并抓取，本次运行内后续页面都走浏览器。
+   （Linux 上通过 Xvfb 虚拟显示器运行，Windows 上无头运行）完成验证并抓取，
+   本次运行内后续页面都走浏览器。
 
 如果日志里出现“反检测浏览器未能在时限内通过验证”，检查：
 
@@ -234,6 +235,14 @@ ELOBoard 站点开启了 Cloudflare Managed Challenge（Turnstile），普通 re
 cd /opt/starcraft-report-agent
 source .venv/bin/activate
 python -m camoufox fetch   # 确认浏览器已下载
+apt install -y xvfb        # Linux 上虚拟显示器模式依赖 Xvfb
+```
+
+Ubuntu 18.04 还需要 toolchain PPA 的新版 libstdc++（要求 GLIBCXX_3.4.26+）：
+
+```bash
+add-apt-repository -y ppa:ubuntu-toolchain-r/test
+apt update && apt install --only-upgrade libstdc++6
 ```
 
 仍未通过时，可配置 `.env.local` 中的 `ELOBOARD_HTTP_PROXY`（HTTP/HTTPS 代理，

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import sys
 import time
 from dataclasses import dataclass
 from datetime import date
@@ -119,9 +120,11 @@ class ELOBoardClient:
     def _fetch_html_with_browser(self, url: str) -> str:
         page = self._ensure_browser_page()
         page.goto(url, wait_until="domcontentloaded", timeout=60000)
-        if not self._wait_challenge_cleared(page):
+        last_title = self._wait_challenge_cleared(page)
+        if last_title is not None:
             raise RuntimeError(
-                "ELOBoard 被 Cloudflare JavaScript challenge 拦截，反检测浏览器未能在时限内通过验证。"
+                "ELOBoard 被 Cloudflare JavaScript challenge 拦截，反检测浏览器未能在时限内通过验证"
+                f"（页面停在：{last_title}）。"
                 "可配置 ELOBOARD_HTTP_PROXY、更换服务器出口 IP，或使用站点允许的 API/数据源。"
             )
         return page.content()
@@ -136,27 +139,39 @@ class ELOBoardClient:
                 "pip install camoufox 并执行 python -m camoufox fetch 下载浏览器。"
                 "也可配置 ELOBOARD_HTTP_PROXY，或使用站点允许的 API/数据源。"
             )
-        self._camoufox = Camoufox(headless=True, **_browser_proxy_option())
-        browser = self._camoufox.__enter__()
+        # Linux 上用 Xvfb 虚拟显示器运行"有头"浏览器，比真无头模式更难被识别；
+        # xvfb 未安装时退回普通无头模式。
+        headless = "virtual" if sys.platform.startswith("linux") else True
+        try:
+            self._camoufox = Camoufox(headless=headless, **_browser_proxy_option())
+            browser = self._camoufox.__enter__()
+        except Exception:
+            if headless != "virtual":
+                raise
+            self._camoufox = Camoufox(headless=True, **_browser_proxy_option())
+            browser = self._camoufox.__enter__()
         self._browser_page = browser.new_page()
         return self._browser_page
 
-    def _wait_challenge_cleared(self, page, timeout_s: float = 90.0) -> bool:
+    def _wait_challenge_cleared(self, page, timeout_s: float = 90.0) -> str | None:
+        """等待挑战页通过；返回 None 表示通过，否则返回停留的页面标题。"""
         deadline = time.monotonic() + timeout_s
+        last_title = ""
         while time.monotonic() < deadline:
-            if not self._page_is_challenge(page):
-                return True
+            last_title = (page.title() or "").strip()
+            if not self._title_is_challenge(last_title):
+                return None
             # 挑战页带交互式 Turnstile 复选框时，尝试点击触发验证
             try:
                 page.locator(TURNSTILE_IFRAME_SELECTOR).first.click(timeout=1500)
             except Exception:
                 pass
             page.wait_for_timeout(2500)
-        return not self._page_is_challenge(page)
+        return last_title or "unknown"
 
     @staticmethod
-    def _page_is_challenge(page) -> bool:
-        title = (page.title() or "").lower()
+    def _title_is_challenge(title: str) -> bool:
+        title = (title or "").lower()
         return any(keyword in title for keyword in CHALLENGE_TITLE_KEYWORDS)
 
     def list_matches(self, url: str | None = None, limit: int = 10) -> list[MatchSummary]:
