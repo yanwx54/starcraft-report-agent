@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass
 from datetime import date
 from typing import Iterable
-from urllib.parse import parse_qs, urljoin, urlparse
+from urllib.parse import parse_qs, unquote, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
+
+try:
+    # curl_cffi 模拟 Chrome 的 TLS/HTTP2 指纹，可降低被 Cloudflare 拦截的概率
+    from curl_cffi import requests as curl_requests
+except ImportError:
+    curl_requests = None
 
 from config.settings import settings
 from models import BattleReport, MatchGame, PlayerRef, PlayerStat, Round, Team
@@ -15,6 +22,39 @@ from translator.rules import TranslateRules, compact_korean_name, load_translate
 
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 StarCraftReportAgent/1.0"
+
+# Cloudflare 挑战页在各语言下的标题关键词（用于判断浏览器是否还停在挑战页）
+CHALLENGE_TITLE_KEYWORDS = ("just a moment", "잠시만", "checking your browser", "请稍候", "請稍候")
+
+TURNSTILE_IFRAME_SELECTOR = "iframe[src*='challenges.cloudflare.com']"
+
+
+def _load_camoufox():
+    """延迟导入 camoufox 反检测浏览器，未安装时返回 None。"""
+    try:
+        from camoufox.sync_api import Camoufox
+    except ImportError:
+        return None
+    return Camoufox
+
+
+def _browser_proxy_option() -> dict[str, dict[str, str]]:
+    """把 ELOBOARD_HTTP_PROXY 转成 Camoufox/Playwright 的 proxy 启动参数。"""
+    raw = settings.eloboard_http_proxy.strip()
+    if not raw:
+        return {}
+    parsed = urlparse(raw if "://" in raw else f"http://{raw}")
+    if not parsed.hostname:
+        return {}
+    server = f"{parsed.scheme}://{parsed.hostname}"
+    if parsed.port:
+        server += f":{parsed.port}"
+    proxy: dict[str, str] = {"server": server}
+    if parsed.username:
+        proxy["username"] = unquote(parsed.username)
+    if parsed.password:
+        proxy["password"] = unquote(parsed.password)
+    return {"proxy": proxy}
 
 
 @dataclass
@@ -28,10 +68,15 @@ class MatchSummary:
 class ELOBoardClient:
     def __init__(self, rules: TranslateRules | None = None) -> None:
         self.rules = rules or load_translate_rules()
-        self.session = requests.Session()
+        if curl_requests is not None:
+            # 指定 impersonate 后 curl_cffi 会自动带上与 TLS 指纹匹配的 Chrome UA，
+            # 这里不再手动覆盖 User-Agent，避免指纹与 UA 不一致被识别。
+            self.session = curl_requests.Session(impersonate="chrome")
+        else:
+            self.session = requests.Session()
+            self.session.headers.update({"User-Agent": USER_AGENT})
         self.session.headers.update(
             {
-                "User-Agent": USER_AGENT,
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
                 "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
                 "Referer": "https://eloboard.com/",
@@ -41,17 +86,78 @@ class ELOBoardClient:
             self.session.proxies.update(
                 {"http": settings.eloboard_http_proxy, "https": settings.eloboard_http_proxy}
             )
+        # 命中 Cloudflare 挑战后，本次会话的后续抓取全部改走反检测浏览器
+        self._use_browser = False
+        self._camoufox = None
+        self._browser_page = None
+
+    def close(self) -> None:
+        """关闭反检测浏览器会话；未启动时是空操作。"""
+        if self._camoufox is None:
+            return
+        try:
+            self._camoufox.__exit__(None, None, None)
+        finally:
+            self._camoufox = None
+            self._browser_page = None
+            self._use_browser = False
 
     def fetch_html(self, url: str) -> str:
-        response = self.session.get(url, timeout=25)
-        if response.status_code == 403 and response.headers.get("Cf-Mitigated") == "challenge":
+        if not self._use_browser:
+            response = self.session.get(url, timeout=25)
+            if not self._is_cloudflare_challenge(response):
+                response.raise_for_status()
+                response.encoding = response.encoding or "utf-8"
+                return response.text
+            self._use_browser = True
+        return self._fetch_html_with_browser(url)
+
+    @staticmethod
+    def _is_cloudflare_challenge(response) -> bool:
+        return response.status_code == 403 and response.headers.get("Cf-Mitigated") == "challenge"
+
+    def _fetch_html_with_browser(self, url: str) -> str:
+        page = self._ensure_browser_page()
+        page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        if not self._wait_challenge_cleared(page):
             raise RuntimeError(
-                "ELOBoard 被 Cloudflare JavaScript challenge 拦截，当前 requests 抓取无法通过验证。"
-                "请更换服务器出口 IP、配置 ELOBOARD_HTTP_PROXY，或使用站点允许的 API/数据源。"
+                "ELOBoard 被 Cloudflare JavaScript challenge 拦截，反检测浏览器未能在时限内通过验证。"
+                "可配置 ELOBOARD_HTTP_PROXY、更换服务器出口 IP，或使用站点允许的 API/数据源。"
             )
-        response.raise_for_status()
-        response.encoding = response.encoding or "utf-8"
-        return response.text
+        return page.content()
+
+    def _ensure_browser_page(self):
+        if self._browser_page is not None:
+            return self._browser_page
+        Camoufox = _load_camoufox()
+        if Camoufox is None:
+            raise RuntimeError(
+                "ELOBoard 被 Cloudflare JavaScript challenge 拦截，需要安装 camoufox 反检测浏览器："
+                "pip install camoufox 并执行 python -m camoufox fetch 下载浏览器。"
+                "也可配置 ELOBOARD_HTTP_PROXY，或使用站点允许的 API/数据源。"
+            )
+        self._camoufox = Camoufox(headless=True, **_browser_proxy_option())
+        browser = self._camoufox.__enter__()
+        self._browser_page = browser.new_page()
+        return self._browser_page
+
+    def _wait_challenge_cleared(self, page, timeout_s: float = 90.0) -> bool:
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            if not self._page_is_challenge(page):
+                return True
+            # 挑战页带交互式 Turnstile 复选框时，尝试点击触发验证
+            try:
+                page.locator(TURNSTILE_IFRAME_SELECTOR).first.click(timeout=1500)
+            except Exception:
+                pass
+            page.wait_for_timeout(2500)
+        return not self._page_is_challenge(page)
+
+    @staticmethod
+    def _page_is_challenge(page) -> bool:
+        title = (page.title() or "").lower()
+        return any(keyword in title for keyword in CHALLENGE_TITLE_KEYWORDS)
 
     def list_matches(self, url: str | None = None, limit: int = 10) -> list[MatchSummary]:
         page_url = url or settings.eloboard_list_url

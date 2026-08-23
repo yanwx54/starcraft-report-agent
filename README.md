@@ -28,8 +28,11 @@
 
 ```bash
 pip install -r requirements.txt
+python -m camoufox fetch
 copy .env.example .env.local
 ```
+
+`python -m camoufox fetch` 会下载反检测浏览器（约 500MB，只需执行一次）。ELOBoard 被 Cloudflare 挑战拦截时，爬虫会自动启动该浏览器完成验证后再抓取。
 
 如果没有 `.env.example`，可以手动创建 `.env.local`，参考下面的环境变量。
 

@@ -101,13 +101,33 @@ def test_latest_valid_report_skips_unparseable_latest_candidate(monkeypatch) -> 
     assert report.rounds[0].matches
 
 
-def test_eloboard_cloudflare_challenge_has_actionable_error(monkeypatch) -> None:
+def test_eloboard_cloudflare_challenge_falls_back_to_browser(monkeypatch) -> None:
     client = ELOBoardClient()
     response = Response()
     response.status_code = 403
     response.headers["Cf-Mitigated"] = "challenge"
     response.url = "https://eloboard.com/"
     monkeypatch.setattr(client.session, "get", lambda *args, **kwargs: response)
+    browser_urls: list[str] = []
+    monkeypatch.setattr(
+        client, "_fetch_html_with_browser", lambda url: browser_urls.append(url) or "<html><body>ok</body></html>"
+    )
+
+    assert client.fetch_html("https://eloboard.com/") == "<html><body>ok</body></html>"
+    assert browser_urls == ["https://eloboard.com/"]
+    # 命中挑战后，后续抓取直接走浏览器，不再尝试 requests 快速路径
+    assert client.fetch_html("https://eloboard.com/page2") == "<html><body>ok</body></html>"
+    assert browser_urls == ["https://eloboard.com/", "https://eloboard.com/page2"]
+
+
+def test_eloboard_cloudflare_challenge_without_camoufox_has_actionable_error(monkeypatch) -> None:
+    client = ELOBoardClient()
+    response = Response()
+    response.status_code = 403
+    response.headers["Cf-Mitigated"] = "challenge"
+    response.url = "https://eloboard.com/"
+    monkeypatch.setattr(client.session, "get", lambda *args, **kwargs: response)
+    monkeypatch.setattr("crawler.eloboard._load_camoufox", lambda: None)
 
     try:
         client.fetch_html("https://eloboard.com/")
@@ -117,6 +137,7 @@ def test_eloboard_cloudflare_challenge_has_actionable_error(monkeypatch) -> None
         raise AssertionError("expected Cloudflare challenge error")
 
     assert "Cloudflare JavaScript challenge" in message
+    assert "camoufox" in message
     assert "ELOBOARD_HTTP_PROXY" in message
 
 

@@ -219,6 +219,26 @@ tail -n 200 /opt/starcraft-report-agent/logs/daily.log
 获取微信 access_token 失败：当前服务器出口 IP 不在公众号 IP 白名单中
 ```
 
+### ELOBoard 被 Cloudflare 拦截
+
+ELOBoard 站点开启了 Cloudflare Managed Challenge（Turnstile），普通 requests 抓取会收到 403。
+当前代码的处理方式：
+
+1. 先用 curl_cffi 模拟 Chrome TLS 指纹快速请求。
+2. 若仍被挑战（403 + `Cf-Mitigated: challenge`），自动启动 camoufox 反检测浏览器
+   （无头 Firefox）完成验证并抓取，本次运行内后续页面都走浏览器。
+
+如果日志里出现“反检测浏览器未能在时限内通过验证”，检查：
+
+```bash
+cd /opt/starcraft-report-agent
+source .venv/bin/activate
+python -m camoufox fetch   # 确认浏览器已下载
+```
+
+仍未通过时，可配置 `.env.local` 中的 `ELOBOARD_HTTP_PROXY`（HTTP/HTTPS 代理，
+格式 `http://user:password@host:port`），浏览器和快速路径都会使用该代理。
+
 ### 中文字体显示成方框或 xx
 
 服务器需要安装中文字体，常见包：
@@ -259,8 +279,11 @@ cd /opt/starcraft-report-agent
 git pull --ff-only origin main
 source .venv/bin/activate
 python -m pip install -r requirements.txt
+python -m camoufox fetch
 python -m pytest -q
 DRY_RUN=0 python main.py --force --publish --json
 ```
+
+`python -m camoufox fetch` 首次执行会下载反检测浏览器（约 500MB，只需一次；更新 requirements.txt 后如提示浏览器缺失再执行）。
 
 如果测试依赖在服务器上不完整，可以跳过 `pytest`，但正式更新后建议至少运行一次。

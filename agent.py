@@ -33,6 +33,13 @@ class StarCraftReportAgent:
         self.notify = PushPlusClient()
 
     def run(self, match_id_or_url: str | None = None, force: bool = False, publish: bool = False) -> RunResult:
+        try:
+            return self._run(match_id_or_url, force=force, publish=publish)
+        finally:
+            # 爬虫可能为通过 Cloudflare 挑战启动了反检测浏览器，用完及时关闭
+            self.crawler.close()
+
+    def _run(self, match_id_or_url: str | None = None, force: bool = False, publish: bool = False) -> RunResult:
         report = self.crawler.fetch_match(match_id_or_url)
         already_done = self.store.has_published_article(report.match_id) if publish else self.store.has_match(report.match_id)
         if already_done and not force:
