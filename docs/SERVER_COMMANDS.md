@@ -126,47 +126,76 @@ wechat_enabled = True
 DRY_RUN=0 python main.py --force --publish --json
 ```
 
-## 7. 查看定时任务
+## 7. 镜像同步部署（当前推送方式）
 
-```bash
-crontab -l
-```
-
-本项目每天北京时间 8:30 运行的任务应类似：
-
-```cron
-30 8 * * * cd /opt/starcraft-report-agent && DRY_RUN=0 /opt/starcraft-report-agent/.venv/bin/python main.py --publish --json >> /opt/starcraft-report-agent/logs/daily.log 2>&1
-```
-
-服务器时区应为北京时间：
-
-```bash
-date
-timedatectl | grep "Time zone"
-```
-
-理想结果：
+服务器机房 IP 被 ELOBoard 的 Cloudflare 挑战拦截（UDP 也被封，WARP 不通），当前采用
+「本机抓取 → 上传服务器 → 服务器离线解析并创建公众号草稿」的模式：
 
 ```text
-Time zone: Asia/Shanghai (CST, +0800)
+本机（家庭 IP，能过 Cloudflare）            服务器（微信白名单 IP）
+  python main.py --mirror-sync root@IP
+    ① 抓列表页 + 最近10场详情 → output/mirror/
+    ② scp 上传 ──────────────────────→  /opt/starcraft-report-agent/mirror/
+    ③ ssh 触发 ──────────────────────→  ELOBOARD_MIRROR_DIR=mirror 下离线解析
+                                           → 生成文章/卡片 → 创建公众号草稿
 ```
 
-## 8. 查看定时任务日志
+### 7.1 本机 SSH 免密配置（一次性）
 
-```bash
-tail -n 200 /opt/starcraft-report-agent/logs/daily.log
+计划任务无人值守运行，不能交互输密码。本机 PowerShell 执行：
+
+```powershell
+ssh-keygen -t ed25519   # 一路回车，已有密钥则跳过
+type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh root@199.180.116.188 "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys"
+ssh root@199.180.116.188 "echo ok"   # 不再要密码即成功
 ```
 
-如果日志文件不存在，先确认目录：
+### 7.2 服务器端准备（一次性）
 
 ```bash
-ls -lah /opt/starcraft-report-agent/logs
+cd /opt/starcraft-report-agent
+git pull --ff-only origin main
+crontab -e   # 删除原来的每日 8:30 推送任务（改为本机触发）
 ```
 
-必要时创建：
+### 7.3 本机注册计划任务（每天 9:00 + 错过后开机补跑）
+
+管理员 PowerShell 执行（按实际 Python 路径调整，`Get-Command python` 可查）：
+
+```powershell
+$action = New-ScheduledTaskAction -Execute "D:\Python\python.exe" -Argument "main.py --mirror-sync root@199.180.116.188" -WorkingDirectory "D:\WORKSPACE\projects\Project02_starcraft_report_agent"
+$trigger = New-ScheduledTaskTrigger -Daily -At 9:00
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 1)
+Register-ScheduledTask -TaskName "StarCraftMirrorSync" -Action $action -Trigger $trigger -Settings $settings
+```
+
+`-StartWhenAvailable` 表示错过 9:00（电脑没开）时，下次开机联网后自动补跑。
+
+手动同步一次：
+
+```powershell
+cd D:\WORKSPACE\projects\Project02_starcraft_report_agent
+python main.py --mirror-sync root@199.180.116.188
+```
+
+### 7.4 同步说明
+
+- 本机抓取偶发被 Cloudflare 挑战拦截，命令内置 3 次重试；仍失败则当天跳过，下次开机补跑即可。
+- 镜像命名：列表页 `list.html`，详情页 `<wr_id>.html`。服务器离线解析优先读镜像，
+  镜像里没有的比赛回落到在线抓取（配合 `ELOBOARD_HTTP_PROXY` 可并存）。
+- 本机代码需与服务器保持同步：改动后正常 `git push`，两台机器各自 `git pull`。
+
+## 8. 排查一次同步是否成功
+
+镜像同步改为本机触发后没有 daily.log，排查方式：
+
+- 本机看计划任务输出：任务计划程序 → StarCraftMirrorSync → 历史，或手动跑一次看控制台。
+- 服务器看历史记录（见第 9 节），有新记录且 `media_id` 非空即成功。
+- 服务器手动补跑（镜像已上传时）：
 
 ```bash
-mkdir -p /opt/starcraft-report-agent/logs
+cd /opt/starcraft-report-agent
+ELOBOARD_MIRROR_DIR=/opt/starcraft-report-agent/mirror DRY_RUN=0 .venv/bin/python main.py --publish --json
 ```
 
 ## 9. 查看历史推送记录

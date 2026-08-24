@@ -141,6 +141,47 @@ def test_eloboard_cloudflare_challenge_without_camoufox_has_actionable_error(mon
     assert "ELOBOARD_HTTP_PROXY" in message
 
 
+def test_eloboard_silent_200_challenge_page_also_falls_back_to_browser(monkeypatch) -> None:
+    client = ELOBoardClient()
+    response = Response()
+    response.status_code = 200
+    response.url = "https://eloboard.com/"
+    response._content = (
+        b"<html><head><title>Just a moment...</title></head>"
+        b"<script src='https://challenges.cloudflare.com/turnstile/v0/api.js'></script></html>"
+    )
+    monkeypatch.setattr(client.session, "get", lambda *args, **kwargs: response)
+    browser_urls: list[str] = []
+    monkeypatch.setattr(
+        client, "_fetch_html_with_browser", lambda url: browser_urls.append(url) or "<html><body>ok</body></html>"
+    )
+
+    assert client.fetch_html("https://eloboard.com/") == "<html><body>ok</body></html>"
+    assert browser_urls == ["https://eloboard.com/"]
+
+
+def test_fetch_html_reads_mirror_files_before_network(tmp_path, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from crawler import eloboard
+
+    (tmp_path / "2535.html").write_text("<html><body>mirror detail</body></html>", encoding="utf-8")
+    (tmp_path / "list.html").write_text("<html><body>mirror list</body></html>", encoding="utf-8")
+    monkeypatch.setattr(
+        eloboard,
+        "settings",
+        SimpleNamespace(eloboard_mirror_dir=str(tmp_path), eloboard_http_proxy=""),
+    )
+
+    base = "https://eloboard.com/men/bbs/board.php?bo_table=pro_league"
+    assert eloboard.resolve_mirror_path(f"{base}&wr_id=2535") == tmp_path / "2535.html"
+    assert eloboard.resolve_mirror_path(base) == tmp_path / "list.html"
+    assert eloboard.resolve_mirror_path(f"{base}&wr_id=9999") is None
+
+    client = eloboard.ELOBoardClient()
+    assert client.fetch_html(f"{base}&wr_id=2535") == "<html><body>mirror detail</body></html>"
+
+
 def test_parse_unnumbered_super_ace_and_spaced_team_score() -> None:
     html = """
     <html><head><title>2026.06.09 (화) 스타 5:5 메이저 프로리그</title></head>

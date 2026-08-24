@@ -37,6 +37,9 @@ class Settings:
         "https://eloboard.com/men/bbs/board.php?bo_table=pro_league",
     )
     eloboard_http_proxy: str = os.getenv("ELOBOARD_HTTP_PROXY", "")
+    # 本地镜像目录：配置后 fetch_html 优先读取目录中的离线 HTML（list.html / <wr_id>.html），
+    # 用于"本机抓取 → 上传服务器 → 服务器离线解析"的同步模式。
+    eloboard_mirror_dir: str = os.getenv("ELOBOARD_MIRROR_DIR", "")
     deepseek_api_key: str = os.getenv("DEEPSEEK_API_KEY", "")
     deepseek_base_url: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
     deepseek_model: str = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")

@@ -5,6 +5,7 @@ import sys
 import time
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 from typing import Iterable
 from urllib.parse import parse_qs, unquote, urljoin, urlparse
 
@@ -91,9 +92,12 @@ class ELOBoardClient:
         self._use_browser = False
         self._camoufox = None
         self._browser_page = None
+        # 会话内 URL → HTML 缓存，避免同一页面重复请求（列表页会被写盘和解析各取一次）
+        self._html_cache: dict[str, str] = {}
 
     def close(self) -> None:
         """关闭反检测浏览器会话；未启动时是空操作。"""
+        self._html_cache.clear()
         if self._camoufox is None:
             return
         try:
@@ -104,6 +108,14 @@ class ELOBoardClient:
             self._use_browser = False
 
     def fetch_html(self, url: str) -> str:
+        mirror_file = resolve_mirror_path(url)
+        if mirror_file is not None:
+            return mirror_file.read_text(encoding="utf-8")
+        if url not in self._html_cache:
+            self._html_cache[url] = self._fetch_html_online(url)
+        return self._html_cache[url]
+
+    def _fetch_html_online(self, url: str) -> str:
         if not self._use_browser:
             response = self.session.get(url, timeout=25)
             if not self._is_cloudflare_challenge(response):
@@ -115,7 +127,16 @@ class ELOBoardClient:
 
     @staticmethod
     def _is_cloudflare_challenge(response) -> bool:
-        return response.status_code == 403 and response.headers.get("Cf-Mitigated") == "challenge"
+        if response.status_code == 403 and response.headers.get("Cf-Mitigated") == "challenge":
+            return True
+        # Cloudflare 偶尔返回 HTTP 200 的静默挑战页，需要靠内容特征识别，
+        # 否则会把 "Just a moment..." 页面当成正常内容返回。
+        text = response.text or ""
+        if len(text) < 60000 and "challenges.cloudflare.com" in text:
+            title = re.search(r"<title[^>]*>([^<]*)</title>", text, re.IGNORECASE)
+            if title and any(keyword in title.group(1).lower() for keyword in CHALLENGE_TITLE_KEYWORDS):
+                return True
+        return False
 
     def _fetch_html_with_browser(self, url: str) -> str:
         page = self._ensure_browser_page()
@@ -127,6 +148,13 @@ class ELOBoardClient:
                 f"（页面停在：{last_title}）。"
                 "可配置 ELOBOARD_HTTP_PROXY、更换服务器出口 IP，或使用站点允许的 API/数据源。"
             )
+        # 挑战通过后 Cloudflare 会自动 reload 原页面，等网络空闲确保 DOM 渲染完整，
+        # 否则可能拿到只有标题的空壳 HTML。
+        try:
+            page.wait_for_load_state("networkidle", timeout=20000)
+        except Exception:
+            pass
+        page.wait_for_timeout(800)
         return page.content()
 
     def _ensure_browser_page(self):
@@ -279,6 +307,20 @@ def parse_match_detail(html: str, url: str, match_id: str, rules: TranslateRules
 def extract_wr_id(url: str) -> str | None:
     parsed = urlparse(url)
     return parse_qs(parsed.query).get("wr_id", [None])[0]
+
+
+def resolve_mirror_path(url: str) -> Path | None:
+    """返回 URL 在本地镜像目录中对应的 HTML 文件；未配置镜像或文件不存在时返回 None。
+
+    命名规则：详情页（含 wr_id）对应 <wr_id>.html，列表页对应 list.html。
+    """
+    mirror_dir = settings.eloboard_mirror_dir.strip()
+    if not mirror_dir:
+        return None
+    wr_id = extract_wr_id(url)
+    name = f"{wr_id}.html" if wr_id else "list.html"
+    candidate = Path(mirror_dir) / name
+    return candidate if candidate.is_file() else None
 
 
 def choose_daily_match(matches: list[MatchSummary]) -> MatchSummary:

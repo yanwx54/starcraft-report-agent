@@ -124,6 +124,18 @@ uvicorn api:app --reload
 python scheduler.py
 ```
 
+## 本机镜像同步模式（绕过服务器 IP 被 Cloudflare 拦截）
+
+服务器机房 IP 无法通过 ELOBoard 的 Cloudflare 挑战时，改用「本机抓取 → 上传服务器 → 服务器离线解析发布」：
+
+```bash
+python main.py --mirror-sync root@199.180.116.188
+```
+
+一条命令完成：本机抓取列表页和最近 10 场详情页（存入 `output/mirror/`）→ scp 上传到服务器 `/opt/starcraft-report-agent/mirror/` → SSH 远程触发 `main.py --publish`，服务器通过 `ELOBOARD_MIRROR_DIR` 直接读本地镜像，不再访问 ELOBoard。
+
+前提与配置见 `docs/SERVER_COMMANDS.md` 的「镜像同步部署」。
+
 ## 输出文件
 
 生成后主要看这几个位置：
