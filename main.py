@@ -4,6 +4,7 @@ import argparse
 import json
 import subprocess
 import sys
+import time
 from dataclasses import asdict
 
 from agent import StarCraftReportAgent
@@ -40,8 +41,8 @@ def mirror_sync(remote: str, remote_dir: str, count: int) -> int:
     mirror_dir.mkdir(parents=True, exist_ok=True)
 
     matches = None
-    # Cloudflare 挑战偶发失败，整个流程最多尝试 3 次（每次新建干净会话）
-    for attempt in range(1, 4):
+    # Cloudflare 挑战/源站过载偶发失败，整个流程最多尝试 4 次，间隔递增退避
+    for attempt in range(1, 5):
         client = ELOBoardClient()
         try:
             (mirror_dir / "list.html").write_text(client.fetch_html(settings.eloboard_list_url), encoding="utf-8")
@@ -54,8 +55,11 @@ def mirror_sync(remote: str, remote_dir: str, count: int) -> int:
             raise RuntimeError("未在 ELOBoard 列表页找到团战记录")
         except Exception as exc:
             print(f"第 {attempt} 次抓取失败：{exc}")
-            if attempt == 3:
+            if attempt == 4:
                 raise
+            wait = 30 * attempt
+            print(f"{wait} 秒后重试...")
+            time.sleep(wait)
         finally:
             client.close()
 

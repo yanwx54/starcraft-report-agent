@@ -121,8 +121,10 @@ class ELOBoardClient:
             if not self._is_cloudflare_challenge(response):
                 response.raise_for_status()
                 response.encoding = response.encoding or "utf-8"
-                return response.text
-            self._use_browser = True
+                # 源站过载时会返回被截断的残缺页面（没有闭合标签），转浏览器重试
+                if "</html>" in response.text.lower():
+                    return response.text
+                self._use_browser = True
         return self._fetch_html_with_browser(url)
 
     @staticmethod
@@ -155,6 +157,10 @@ class ELOBoardClient:
         except Exception:
             pass
         page.wait_for_timeout(800)
+        title = (page.title() or "").strip()
+        # 源站宕机/过载时 Cloudflare 会显示 5xx 错误页（如 522: Connection timed out）
+        if re.search(r"\b(5\d{2})\b", title):
+            raise RuntimeError(f"ELOBoard 源站暂时不可用（{title}），稍后重试即可。")
         return page.content()
 
     def _ensure_browser_page(self):
