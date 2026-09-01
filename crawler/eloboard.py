@@ -65,6 +65,8 @@ class MatchSummary:
     title: str
     url: str
     match_date: date | None
+    # 新版赛事页的联赛名（메이저 프로리그 / K리그），用于排序与展示
+    league: str = ""
 
 
 class ELOBoardClient:
@@ -209,7 +211,28 @@ class ELOBoardClient:
         return any(keyword in title for keyword in CHALLENGE_TITLE_KEYWORDS)
 
     def list_matches(self, url: str | None = None, limit: int = 10) -> list[MatchSummary]:
-        page_url = url or settings.eloboard_list_url
+        """聚合各赛事页（메이저 프로리그 / K리그）的比赛列表，按日期与联赛优先级排序。"""
+        if url is not None:
+            page_urls = [url]
+        else:
+            page_urls = list(settings.eloboard_event_urls) or [settings.eloboard_list_url]
+
+        seen: set[str] = set()
+        matches: list[MatchSummary] = []
+        for page_url in page_urls:
+            for summary in parse_event_page(self.fetch_html(page_url), page_url):
+                if summary.match_id in seen:
+                    continue
+                seen.add(summary.match_id)
+                matches.append(summary)
+
+        # 未解析到新版比赛时回退旧版列表页（旧镜像 / 旧站点 HTML）
+        if not matches and len(page_urls) == 1:
+            matches = self._list_matches_legacy(page_urls[0], limit=limit)
+
+        return order_match_candidates(matches)[:limit]
+
+    def _list_matches_legacy(self, page_url: str, limit: int = 10) -> list[MatchSummary]:
         soup = BeautifulSoup(self.fetch_html(page_url), "html.parser")
         seen: set[str] = set()
         matches: list[MatchSummary] = []
@@ -264,10 +287,10 @@ class ELOBoardClient:
             return self.latest_valid_report()
         elif match_id_or_url.startswith("http"):
             url = match_id_or_url
-            match_id = extract_wr_id(url) or match_id_or_url.rsplit("=", 1)[-1]
+            match_id = extract_match_id(url)
         else:
             match_id = match_id_or_url
-            url = f"{settings.eloboard_list_url}&wr_id={match_id}"
+            url = build_match_url(match_id)
 
         html = self.fetch_html(url)
         return parse_match_detail(html, url=url, match_id=match_id, rules=self.rules)
@@ -276,6 +299,11 @@ class ELOBoardClient:
 def parse_match_detail(html: str, url: str, match_id: str, rules: TranslateRules | None = None) -> BattleReport:
     rules = rules or load_translate_rules()
     soup = BeautifulSoup(html, "html.parser")
+    # 2026-09 改版后的赛事详情页（Next.js SSR）：article[class*="__day"] + section[class*="__set"]
+    day_article = soup.select_one('article[class*="__day"]')
+    if day_article is not None:
+        return parse_match_detail_v2(soup, day_article, url=url, match_id=match_id, rules=rules)
+
     title = normalize_spaces((soup.title.get_text(" ", strip=True) if soup.title else "").split(">")[0])
     if not title:
         h1 = soup.find(["h1", "h2"])
@@ -310,21 +338,313 @@ def parse_match_detail(html: str, url: str, match_id: str, rules: TranslateRules
     )
 
 
+def parse_match_detail_v2(
+    soup: BeautifulSoup,
+    article,
+    url: str,
+    match_id: str,
+    rules: TranslateRules,
+) -> BattleReport:
+    """解析 2026-09 改版后的赛事详情页（Next.js SSR DOM）。"""
+    h1 = soup.find("h1") or soup.find("h2")
+    league_raw = normalize_spaces(h1.get_text(strip=True)) if h1 else ""
+    league_name = parse_league_name(league_raw) if league_raw else "韩国星际争霸团战"
+
+    title_node = article.select_one('[class*="dayTitle"]')
+    day_title = normalize_spaces(title_node.get_text(" ", strip=True)) if title_node else ""
+    title = normalize_spaces(" ".join(part for part in (league_raw, day_title) if part)) or f"event {match_id}"
+
+    when_node = article.select_one('[class*="dayWhen"]')
+    when_text = when_node.get_text(" ", strip=True) if when_node else ""
+    match_date = parse_date(when_text) or parse_date(day_title)
+
+    note_node = article.select_one("pre")
+    note_text = note_node.get_text("\n", strip=True) if note_node else ""
+    prize_text = parse_prize_text_v2(note_text)
+    ace_mode = parse_ace_mode(note_text)
+
+    race_map = parse_race_map_v2(article)
+    team_a, team_b = parse_teams_v2(article, rules, race_map)
+    rounds, ace_round = parse_rounds_v2(article, rules, race_map, team_a, team_b, ace_mode)
+    apply_final_score_v2(article, team_a, team_b, rounds, ace_round)
+    stats = calculate_player_stats(team_a, team_b, rounds, ace_round)
+    team_a.is_winner = team_a.score > team_b.score
+    team_b.is_winner = team_b.score > team_a.score
+
+    return BattleReport(
+        match_id=match_id,
+        source_url=url,
+        title_raw=title,
+        match_date=match_date,
+        league_name=league_name,
+        prize_text=prize_text,
+        team_a=team_a,
+        team_b=team_b,
+        rounds=rounds,
+        ace_round=ace_round,
+        player_stats=stats,
+        raw_text=normalize_detail_text(article.get_text(" ", strip=True)),
+    )
+
+
+def parse_race_map_v2(article) -> dict[str, str]:
+    """从页脚选手统计（i.race + 选手链接）构建种族表。"""
+    race_map: dict[str, str] = {}
+    footer = article.select_one("footer")
+    if footer is None:
+        return race_map
+    for li in footer.select("li"):
+        race_icon = li.find("i")
+        link = li.find("a")
+        if race_icon is None or link is None:
+            continue
+        race = race_icon.get_text(strip=True)
+        if race in ("Z", "T", "P"):
+            race_map[compact_korean_name(link.get_text(strip=True))] = race
+    return race_map
+
+
+def parse_teams_v2(article, rules: TranslateRules, race_map: dict[str, str]) -> tuple[Team, Team]:
+    teams: list[Team] = []
+    for node in article.select('[class*="rosters"] [class*="roster"]')[:2]:
+        team_label = node.find("b")
+        raw_name = (
+            compact_korean_name(re.sub(r"[\[\]]", "", team_label.get_text(strip=True))) if team_label else ""
+        )
+        players = []
+        for entry in node.select('[class*="entry"]'):
+            # 部分页面的出场条目带序号 <b class="ord">，取名字前先剔除
+            for ord_node in entry.select("b"):
+                ord_node.decompose()
+            raw = compact_korean_name(entry.get_text(strip=True))
+            if not raw:
+                continue
+            players.append(
+                PlayerRef(
+                    raw_name=raw,
+                    display_name=rules.translate_player(raw),
+                    race=race_map.get(raw, "U"),
+                )
+            )
+        teams.append(
+            Team(
+                raw_name=raw_name,
+                display_name=rules.translate_player(raw_name.replace("팀", "")) + "队",
+                players=players,
+            )
+        )
+    if len(teams) < 2:
+        teams = [
+            Team(raw_name="TeamA", display_name="Team A"),
+            Team(raw_name="TeamB", display_name="Team B"),
+        ]
+    return teams[0], teams[1]
+
+
+def parse_rounds_v2(
+    article,
+    rules: TranslateRules,
+    race_map: dict[str, str],
+    team_a: Team,
+    team_b: Team,
+    ace_mode: str,
+) -> tuple[list[Round], Round | None]:
+    rounds: list[Round] = []
+    ace_round: Round | None = None
+    for section in article.select('section[class*="set"]'):
+        hd = section.select_one("h4")
+        hd_text = hd.get_text(" ", strip=True) if hd else ""
+        is_ace = "에이스" in hd_text or "Super Ace" in hd_text
+        if is_ace:
+            name = f"{len(rounds) + 1}SET - Super Ace Match"
+        else:
+            set_no = re.search(r"(\d+)\s*세트", hd_text)
+            bo_node = section.select_one("h4 em")
+            fmt_spans = [
+                span
+                for span in section.select("h4 span")
+                if "setScore" not in " ".join(span.get("class") or [])
+            ]
+            bo = normalize_spaces(bo_node.get_text(" ", strip=True)).replace(" ", "") if bo_node else ""
+            fmt = normalize_spaces(fmt_spans[0].get_text(" ", strip=True)) if fmt_spans else ""
+            # 개인전 即프로리그（个人赛制），统一成旧命名便于下游翻译
+            if fmt == "개인전":
+                fmt = "프로리그"
+            set_label = f"{set_no.group(1) if set_no else len(rounds) + 1}SET"
+            name = normalize_spaces(" ".join(part for part in (set_label, f"- {bo}" if bo else "", fmt) if part))
+
+        round_item = Round(name=normalize_round_name(name))
+        round_item.ace_mode = ace_mode if is_ace else ""
+        round_item.matches = parse_games_v2(section, rules, race_map)
+
+        score_node = section.select_one('[class*="setScore"]')
+        if score_node is not None:
+            score_match = re.search(r"(\d+)\s*:\s*(\d+)", score_node.get_text(" ", strip=True))
+            if score_match:
+                round_item.score_a, round_item.score_b = int(score_match.group(1)), int(score_match.group(2))
+        if not (round_item.score_a or round_item.score_b):
+            infer_round_score_from_matches(round_item, team_a, team_b)
+        elif not round_item.winner_team:
+            if round_item.score_a > round_item.score_b:
+                round_item.winner_team = team_a.display_name
+            elif round_item.score_b > round_item.score_a:
+                round_item.winner_team = team_b.display_name
+
+        if is_ace:
+            ace_round = round_item
+        else:
+            rounds.append(round_item)
+    return rounds, ace_round
+
+
+def parse_games_v2(section, rules: TranslateRules, race_map: dict[str, str]) -> list[MatchGame]:
+    games: list[MatchGame] = []
+    for idx, li in enumerate(section.select("ol li"), start=1):
+        map_node = li.select_one('[class*="gmapName"]')
+        map_name = rules.translate_map(map_node.get_text(strip=True)) if map_node else ""
+        left = li.select_one('[class*="gleft"]')
+        right = li.select_one('[class*="gright"]')
+        if left is None or right is None:
+            continue
+
+        def side_player(side) -> PlayerRef:
+            name_node = side.select_one('[class*="nm"]') or side.find("a") or side
+            raw = compact_korean_name(name_node.get_text(strip=True))
+            race_icon = side.find("i")
+            race = race_icon.get_text(strip=True) if race_icon is not None else ""
+            if race not in ("Z", "T", "P"):
+                race = race_map.get(raw, "U")
+            return PlayerRef(raw, rules.translate_player(raw), race)
+
+        player_a = side_player(left)
+        player_b = side_player(right)
+        # 胜者由 gwin/glose 类名标记
+        left_classes = " ".join(left.get("class") or [])
+        winner_raw = player_a.raw_name if "gwin" in left_classes else player_b.raw_name
+        race_map[player_a.raw_name] = player_a.race
+        race_map[player_b.raw_name] = player_b.race
+        games.append(
+            MatchGame(
+                id=idx,
+                map_name=map_name,
+                player_a=player_a,
+                player_b=player_b,
+                winner=winner_raw,
+                winner_display=rules.translate_player(winner_raw),
+            )
+        )
+    return games
+
+
+def apply_final_score_v2(article, team_a: Team, team_b: Team, rounds: list[Round], ace_round: Round | None) -> None:
+    final_node = article.select_one('[class*="final"]')
+    if final_node is not None:
+        # 比分方向跟随 DOM 位置：左侧队名对应左侧比分（tWin/tLose 只标记胜方，位置不固定）
+        team_spans = final_node.find_all("span", recursive=False)
+        score_match = re.search(r"(\d+)\s*:\s*(\d+)", final_node.get_text(" ", strip=True))
+        if score_match and len(team_spans) >= 2:
+            left_raw = compact_korean_name(team_spans[0].get_text(strip=True))
+            left_score, right_score = int(score_match.group(1)), int(score_match.group(2))
+            if left_raw == team_b.raw_name:
+                team_b.score, team_a.score = left_score, right_score
+            else:
+                team_a.score, team_b.score = left_score, right_score
+            return
+
+    all_rounds = [*rounds, *([ace_round] if ace_round else [])]
+    team_a.score = sum(1 for item in all_rounds if item.winner_team == team_a.display_name)
+    team_b.score = sum(1 for item in all_rounds if item.winner_team == team_b.display_name)
+
+
+def parse_prize_text_v2(note_text: str) -> str:
+    match = re.search(r"두\s*([0-9,]+)\s*개?", note_text)
+    if match:
+        return f"{match.group(1)}个"
+    return parse_prize_text(normalize_spaces(note_text))
+
+
 def extract_wr_id(url: str) -> str | None:
     parsed = urlparse(url)
     return parse_qs(parsed.query).get("wr_id", [None])[0]
 
 
+def extract_event_day(url: str) -> tuple[str | None, str | None]:
+    """新版 URL → (event_id, day)，如 /events/43?tab=results&day=66 → ("43", "66")。"""
+    parsed = urlparse(url)
+    event_match = re.search(r"/events/(\d+)", parsed.path)
+    if not event_match:
+        return None, None
+    day = parse_qs(parsed.query).get("day", [None])[0]
+    return event_match.group(1), day
+
+
+def extract_match_id(url: str) -> str:
+    """从 URL 提取比赛 ID：新版 "43-66"，旧版 wr_id。"""
+    event_id, day = extract_event_day(url)
+    if event_id and day:
+        return f"{event_id}-{day}"
+    return extract_wr_id(url) or url.rsplit("=", 1)[-1]
+
+
+def build_match_url(match_id: str) -> str:
+    """根据比赛 ID 构造详情页 URL："43-66" → 新版赛事页，纯数字 → 旧版 wr_id。"""
+    parts = match_id.split("-")
+    if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+        return f"https://eloboard.com/events/{parts[0]}?tab=results&day={parts[1]}"
+    return f"{settings.eloboard_list_url}&wr_id={match_id}"
+
+
+def parse_event_page(html: str, page_url: str) -> list[MatchSummary]:
+    """解析新版赛事页（/events/43 等）的已完赛列表。"""
+    soup = BeautifulSoup(html, "html.parser")
+    h1 = soup.find("h1") or soup.find("h2")
+    league = normalize_spaces(h1.get_text(strip=True)) if h1 else ""
+
+    matches: list[MatchSummary] = []
+    for row in soup.select('a[class*="brow"]'):
+        href = urljoin(page_url, row.get("href", ""))
+        event_id, day = extract_event_day(href)
+        if not event_id or not day:
+            continue
+        date_node = row.select_one('[class*="bdate"]')
+        title_node = row.select_one('[class*="btitle"]')
+        date_text = normalize_spaces(date_node.get_text(" ", strip=True)) if date_node else ""
+        title_text = normalize_spaces(title_node.get_text(" ", strip=True)) if title_node else ""
+        # 联赛名可能未出现在标题中，补齐以保证排序与展示稳定
+        if league and league not in title_text:
+            title_text = f"{league} {title_text}".strip()
+        title = normalize_spaces(" ".join(part for part in (date_text, title_text) if part))
+        if not title:
+            continue
+        matches.append(
+            MatchSummary(
+                match_id=f"{event_id}-{day}",
+                title=title,
+                url=href,
+                match_date=parse_date(date_text or title),
+                league=league,
+            )
+        )
+    return matches
+
+
 def resolve_mirror_path(url: str) -> Path | None:
     """返回 URL 在本地镜像目录中对应的 HTML 文件；未配置镜像或文件不存在时返回 None。
 
-    命名规则：详情页（含 wr_id）对应 <wr_id>.html，列表页对应 list.html。
+    命名规则：新版详情页（/events/43?...&day=66）对应 43-66.html，
+    新版赛事页对应 list-43.html；旧版详情页（含 wr_id）对应 <wr_id>.html，列表页对应 list.html。
     """
     mirror_dir = settings.eloboard_mirror_dir.strip()
     if not mirror_dir:
         return None
-    wr_id = extract_wr_id(url)
-    name = f"{wr_id}.html" if wr_id else "list.html"
+    event_id, day = extract_event_day(url)
+    if event_id and day:
+        name = f"{event_id}-{day}.html"
+    elif event_id:
+        name = f"list-{event_id}.html"
+    else:
+        wr_id = extract_wr_id(url)
+        name = f"{wr_id}.html" if wr_id else "list.html"
     candidate = Path(mirror_dir) / name
     return candidate if candidate.is_file() else None
 
@@ -353,7 +673,7 @@ def is_valid_report(report: BattleReport) -> bool:
 
 
 def league_priority(match: MatchSummary) -> tuple[int, int]:
-    title = match.title
+    title = f"{match.title} {match.league}"
     if "메이저" in title and "준메이저" not in title:
         league_rank = 0
     elif "준메이저" in title:
@@ -365,7 +685,9 @@ def league_priority(match: MatchSummary) -> tuple[int, int]:
     try:
         id_rank = -int(match.match_id)
     except ValueError:
-        id_rank = 0
+        # 新版 ID 形如 "43-66"，取 day 部分作为新旧排序依据
+        parts = match.match_id.rsplit("-", 1)
+        id_rank = -int(parts[1]) if len(parts) == 2 and parts[1].isdigit() else 0
     return league_rank, id_rank
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -35,6 +35,18 @@ class Settings:
     eloboard_list_url: str = os.getenv(
         "ELOBOARD_LIST_URL",
         "https://eloboard.com/men/bbs/board.php?bo_table=pro_league",
+    )
+    # 2026-09 网站改版后的赛事页：메이저 프로리그(43) 与 K리그(33)，
+    # 比赛列表从这两个赛事页的 results 标签聚合。
+    eloboard_event_urls: list[str] = field(
+        default_factory=lambda: [
+            url.strip()
+            for url in os.getenv(
+                "ELOBOARD_EVENT_URLS",
+                "https://eloboard.com/events/43,https://eloboard.com/events/33",
+            ).split(",")
+            if url.strip()
+        ]
     )
     eloboard_http_proxy: str = os.getenv("ELOBOARD_HTTP_PROXY", "")
     # 本地镜像目录：配置后 fetch_html 优先读取目录中的离线 HTML（list.html / <wr_id>.html），

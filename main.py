@@ -13,8 +13,8 @@ from config.settings import settings
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="韩国星际争霸团战战报自动生成系统")
-    parser.add_argument("--match-id", help="指定 ELOBoard wr_id，例如 2449")
-    parser.add_argument("--url", help="指定 ELOBoard 详情页 URL")
+    parser.add_argument("--match-id", help="指定比赛 ID：新版赛事页格式如 43-66（赛事 43 第 66 日），旧版 wr_id 如 2449")
+    parser.add_argument("--url", help="指定 ELOBoard 详情页 URL，如 https://eloboard.com/events/43?tab=results&day=66")
     parser.add_argument("--force", action="store_true", help="忽略历史记录并重新生成")
     parser.add_argument("--publish", action="store_true", help="创建微信公众号草稿。需配置微信密钥且 DRY_RUN=0")
     parser.add_argument("--json", action="store_true", help="以 JSON 输出运行结果")
@@ -45,7 +45,10 @@ def mirror_sync(remote: str, remote_dir: str, count: int) -> int:
     for attempt in range(1, 5):
         client = ELOBoardClient()
         try:
-            (mirror_dir / "list.html").write_text(client.fetch_html(settings.eloboard_list_url), encoding="utf-8")
+            event_urls = list(settings.eloboard_event_urls) or [settings.eloboard_list_url]
+            for event_url in event_urls:
+                event_id = event_url.rstrip("/").rsplit("/", 1)[-1]
+                (mirror_dir / f"list-{event_id}.html").write_text(client.fetch_html(event_url), encoding="utf-8")
             matches = client.list_matches(limit=count)
             if matches:
                 for match in matches:
