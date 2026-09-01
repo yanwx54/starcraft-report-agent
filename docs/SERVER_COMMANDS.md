@@ -58,10 +58,10 @@ which python
 python main.py --force --json
 ```
 
-指定某一场比赛：
+指定某一场比赛（新版比赛 ID 为「赛事-日」格式，如 `43-66`；旧版 wr_id 如 `2454` 仍可用）：
 
 ```bash
-python main.py --match-id 2454 --force --json
+python main.py --match-id 43-66 --force --json
 ```
 
 ## 5. 推送微信公众号草稿
@@ -75,7 +75,7 @@ DRY_RUN=0 python main.py --force --publish --json
 指定某一场比赛并推草稿：
 
 ```bash
-DRY_RUN=0 python main.py --match-id 2454 --force --publish --json
+DRY_RUN=0 python main.py --match-id 43-66 --force --publish --json
 ```
 
 成功时，输出里应该有非空的 `draft_media_id`：
@@ -126,76 +126,77 @@ wechat_enabled = True
 DRY_RUN=0 python main.py --force --publish --json
 ```
 
-## 7. 镜像同步部署（当前推送方式）
+## 7. 服务器定时推送（当前推送方式）
 
-服务器机房 IP 被 ELOBoard 的 Cloudflare 挑战拦截（UDP 也被封，WARP 不通），当前采用
-「本机抓取 → 上传服务器 → 服务器离线解析并创建公众号草稿」的模式：
+2026-09 ELOBoard 改版后，服务器已能直连新版赛事页（`/events/43`、`/events/33`），
+不再需要「本机抓取镜像 → 上传服务器」的模式，直接在服务器上配置 cron 定时推送。
 
-```text
-本机（家庭 IP，能过 Cloudflare）            服务器（微信白名单 IP）
-  python main.py --mirror-sync root@IP
-    ① 抓列表页 + 最近10场详情 → output/mirror/
-    ② scp 上传 ──────────────────────→  /opt/starcraft-report-agent/mirror/
-    ③ ssh 触发 ──────────────────────→  ELOBOARD_MIRROR_DIR=mirror 下离线解析
-                                           → 生成文章/卡片 → 创建公众号草稿
-```
+### 7.1 确认服务器时区
 
-### 7.1 本机 SSH 免密配置（一次性）
-
-计划任务无人值守运行，不能交互输密码。本机 PowerShell 执行：
-
-```powershell
-ssh-keygen -t ed25519   # 一路回车，已有密钥则跳过
-type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh root@199.180.116.188 "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys"
-ssh root@199.180.116.188 "echo ok"   # 不再要密码即成功
-```
-
-### 7.2 服务器端准备（一次性）
+cron 按服务器本地时间执行，先确认时区：
 
 ```bash
-cd /opt/starcraft-report-agent
-git pull --ff-only origin main
-crontab -e   # 删除原来的每日 8:30 推送任务（改为本机触发）
+date
 ```
 
-### 7.3 本机注册计划任务（每天 9:00 + 错过后开机补跑）
+如果显示 UTC，北京时间凌晨 4 点对应 UTC 前一天 20:00，cron 应写 `0 20 * * *`；
+或者直接把服务器时区改成北京时间：
 
-管理员 PowerShell 执行（按实际 Python 路径调整，`Get-Command python` 可查）：
-
-```powershell
-$action = New-ScheduledTaskAction -Execute "D:\Python\python.exe" -Argument "main.py --mirror-sync root@199.180.116.188" -WorkingDirectory "D:\WORKSPACE\projects\Project02_starcraft_report_agent"
-$trigger = New-ScheduledTaskTrigger -Daily -At 9:00
-$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 1)
-Register-ScheduledTask -TaskName "StarCraftMirrorSync" -Action $action -Trigger $trigger -Settings $settings
+```bash
+timedatectl set-timezone Asia/Shanghai
 ```
 
-`-StartWhenAvailable` 表示错过 9:00（电脑没开）时，下次开机联网后自动补跑。
+### 7.2 配置 crontab（每天凌晨 4:00）
 
-手动同步一次：
-
-```powershell
-cd D:\WORKSPACE\projects\Project02_starcraft_report_agent
-python main.py --mirror-sync root@199.180.116.188
+```bash
+mkdir -p /opt/starcraft-report-agent/logs
+crontab -e
 ```
 
-### 7.4 同步说明
+加入（服务器本地时间凌晨 4:00）：
 
-- 本机抓取偶发被 Cloudflare 挑战拦截，命令内置 3 次重试；仍失败则当天跳过，下次开机补跑即可。
-- 镜像命名：列表页 `list.html`，详情页 `<wr_id>.html`。服务器离线解析优先读镜像，
-  镜像里没有的比赛回落到在线抓取（配合 `ELOBOARD_HTTP_PROXY` 可并存）。
-- 本机代码需与服务器保持同步：改动后正常 `git push`，两台机器各自 `git pull`。
+```cron
+0 4 * * * cd /opt/starcraft-report-agent && git pull --ff-only origin main >> logs/cron.log 2>&1; DRY_RUN=0 .venv/bin/python main.py --publish --json >> logs/cron.log 2>&1
+```
 
-## 8. 排查一次同步是否成功
+要点：
 
-镜像同步改为本机触发后没有 daily.log，排查方式：
+- 用 `.venv/bin/python` 直接调用，无需 `source activate`（cron 环境下更可靠）。
+- **不带 `--force`**：最新战报已推送过（历史记录有非空 `media_id`）时自动跳过，不会重复推草稿；
+  手动补跑或强制重新生成时才加 `--force`。
+- 先 `git pull` 保证服务器跑最新代码；拉取失败不影响当天发布（用 `;` 分隔）。
+- 日志追加到 `logs/cron.log`。
 
-- 本机看计划任务输出：任务计划程序 → StarCraftMirrorSync → 历史，或手动跑一次看控制台。
+### 7.3 验证定时任务环境
+
+不等 4 点，手动模拟 cron 环境跑一次：
+
+```bash
+cd /opt/starcraft-report-agent && DRY_RUN=0 .venv/bin/python main.py --json
+```
+
+输出 `"skipped": true` 即正常（最新战报已推送过）。要立即重推一次草稿则加 `--force`。
+
+## 8. 排查一次定时推送是否成功
+
+- 看定时任务日志：
+
+```bash
+tail -n 200 /opt/starcraft-report-agent/logs/cron.log
+```
+
 - 服务器看历史记录（见第 9 节），有新记录且 `media_id` 非空即成功。
-- 服务器手动补跑（镜像已上传时）：
+- 服务器手动补跑：
 
 ```bash
 cd /opt/starcraft-report-agent
-ELOBOARD_MIRROR_DIR=/opt/starcraft-report-agent/mirror DRY_RUN=0 .venv/bin/python main.py --publish --json
+DRY_RUN=0 .venv/bin/python main.py --publish --json
+```
+
+- （备用）本机镜像同步模式仍保留，ELOBoard 再次封锁服务器 IP 时可临时启用：
+
+```powershell
+python main.py --mirror-sync root@199.180.116.188
 ```
 
 ## 9. 查看历史推送记录
