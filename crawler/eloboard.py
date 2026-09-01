@@ -122,10 +122,12 @@ class ELOBoardClient:
             response = self.session.get(url, timeout=25)
             if not self._is_cloudflare_challenge(response):
                 response.raise_for_status()
-                response.encoding = response.encoding or "utf-8"
+                # 注意：_is_cloudflare_challenge 已访问过 response.text，
+                # curl_cffi 此后禁止再设置 encoding，这里直接按响应头解码读取
+                text = response.text
                 # 源站过载时会返回被截断的残缺页面（没有闭合标签），转浏览器重试
-                if "</html>" in response.text.lower():
-                    return response.text
+                if "</html>" in text.lower():
+                    return text
                 self._use_browser = True
         return self._fetch_html_with_browser(url)
 
