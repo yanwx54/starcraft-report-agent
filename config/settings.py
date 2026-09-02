@@ -36,14 +36,14 @@ class Settings:
         "ELOBOARD_LIST_URL",
         "https://eloboard.com/men/bbs/board.php?bo_table=pro_league",
     )
-    # 2026-09 网站改版后的赛事页：메이저 프로리그(43) 与 K리그(33)，
-    # 比赛列表从这两个赛事页的 results 标签聚合。
+    # 2026-09 网站改版后的赛事页：战报只从 메이저 프로리그(43)提取，
+    # 其他赛事页（如 K리그 33）不再抓取。
     eloboard_event_urls: list[str] = field(
         default_factory=lambda: [
             url.strip()
             for url in os.getenv(
                 "ELOBOARD_EVENT_URLS",
-                "https://eloboard.com/events/43,https://eloboard.com/events/33",
+                "https://eloboard.com/events/43",
             ).split(",")
             if url.strip()
         ]
