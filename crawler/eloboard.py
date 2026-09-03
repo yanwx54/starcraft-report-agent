@@ -276,10 +276,14 @@ class ELOBoardClient:
                 report = self.fetch_match(summary.url)
             except Exception as exc:
                 failures.append(f"{summary.match_id} 读取失败：{exc}")
+                # 逐条打到日志（cron 场景下 stdout 会进 cron.log），避免单个候选
+                # 失败被静默跳过、事后无从排查
+                print(f"[latest_valid_report] {failures[-1]}", flush=True)
                 continue
             if is_valid_report(report):
                 return report
             failures.append(f"{summary.match_id} 未解析到有效对局：{summary.title}")
+            print(f"[latest_valid_report] {failures[-1]}", flush=True)
 
         details = "；".join(failures[:5])
         raise RuntimeError(f"最新战报候选均未解析到有效对局，请检查 ELOBoard 页面结构或访问状态。{details}")
